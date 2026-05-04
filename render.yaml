@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: spark-social-backend
+    runtime: node
+    plan: free
+    buildCommand: npm ci
+    startCommand: npm run backend
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: 20.19.0
+      - key: ACCESS_TOKEN_SECRET
+        sync: false
+      - key: REFRESH_TOKEN_SECRET
+        sync: false
+      - key: RAZORPAY_KEY_ID
+        sync: false
+      - key: RAZORPAY_KEY_SECRET
+        sync: false

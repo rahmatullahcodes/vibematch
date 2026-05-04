@@ -1,0 +1,56 @@
+import { USE_MOCK_API } from "../config/env";
+import { request } from "../lib/httpClient";
+import * as mockApi from "../mocks/mockApi";
+
+export const adminService = {
+  async getModerationUsers(token, payload = {}) {
+    if (USE_MOCK_API) {
+      return mockApi.getModerationUsers(token, payload);
+    }
+    const query = new URLSearchParams();
+    if (payload?.status && payload.status !== "all") {
+      query.set("status", payload.status);
+    }
+    if (payload?.query) {
+      query.set("query", payload.query);
+    }
+    const suffix = query.toString() ? `?${query.toString()}` : "";
+    return request(`/moderation/users${suffix}`, { method: "GET", token });
+  },
+
+  async getModerationReports(token, status = "all") {
+    if (USE_MOCK_API) {
+      return mockApi.getModerationReports(token, { status });
+    }
+    const query = status && status !== "all" ? `?status=${encodeURIComponent(status)}` : "";
+    return request(`/moderation/reports${query}`, { method: "GET", token });
+  },
+
+  async resolveModerationReport(token, payload) {
+    if (USE_MOCK_API) {
+      return mockApi.resolveModerationReport(token, payload);
+    }
+    return request("/moderation/reports/resolve", { method: "POST", token, data: payload });
+  },
+
+  async getModerationAudit(token) {
+    if (USE_MOCK_API) {
+      return mockApi.getModerationAudit(token);
+    }
+    return request("/moderation/audit", { method: "GET", token });
+  },
+
+  async updateUserModerationStatus(token, payload) {
+    if (USE_MOCK_API) {
+      return mockApi.updateUserModerationStatus(token, payload);
+    }
+    return request("/moderation/users/status", { method: "POST", token, data: payload });
+  },
+
+  async getAnalyticsDashboard(token) {
+    if (USE_MOCK_API) {
+      return mockApi.getAnalyticsDashboard(token);
+    }
+    return request("/analytics/dashboard", { method: "GET", token });
+  },
+};

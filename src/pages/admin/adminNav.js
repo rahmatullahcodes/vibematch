@@ -1,0 +1,17 @@
+export const adminNavItems = [
+  { path: "/admin", label: "Overview", shortLabel: "Overview" },
+  { path: "/admin/users", label: "Users", shortLabel: "Users" },
+  { path: "/admin/reports", label: "Reports", shortLabel: "Reports" },
+  { path: "/admin/audit", label: "Audit", shortLabel: "Audit" },
+  { path: "/admin/content", label: "Content", shortLabel: "Content" },
+  { path: "/admin/payments", label: "Payments", shortLabel: "Pay" },
+  { path: "/admin/notifications", label: "Notifications", shortLabel: "Notify" },
+  { path: "/admin/settings", label: "Settings", shortLabel: "Settings" },
+  { path: "/admin/security", label: "Security", shortLabel: "Security" },
+  { path: "/admin/roles", label: "Roles", shortLabel: "Roles" },
+  { path: "/admin/support", label: "Support", shortLabel: "Support" },
+  { path: "/admin/risk", label: "Risk", shortLabel: "Risk" },
+  { path: "/admin/campaigns", label: "Campaigns", shortLabel: "Camp" },
+  { path: "/admin/system", label: "System", shortLabel: "System" },
+  { path: "/admin/compliance", label: "Compliance", shortLabel: "Legal" },
+];

@@ -47,6 +47,16 @@ export const adminService = {
     return request("/moderation/users/status", { method: "POST", token, data: payload });
   },
 
+  async deleteModerationUser(token, payload) {
+    if (USE_MOCK_API) {
+      if (typeof mockApi.deleteModerationUser === "function") {
+        return mockApi.deleteModerationUser(token, payload);
+      }
+      return { ok: true };
+    }
+    return request("/moderation/users/delete", { method: "POST", token, data: payload });
+  },
+
   async getAnalyticsDashboard(token) {
     if (USE_MOCK_API) {
       return mockApi.getAnalyticsDashboard(token);

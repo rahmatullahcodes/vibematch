@@ -50,6 +50,7 @@ function AdminShell() {
     refreshAnalytics,
     resolveReport,
     updateUserStatus,
+    deleteUser,
   } = useAdminPanel(token, isAuthenticated, isAdmin, true);
 
   const currentNav = useMemo(() => {
@@ -110,6 +111,7 @@ function AdminShell() {
       refreshAll,
       resolveReport,
       updateUserStatus,
+      deleteUser,
     }),
     [
       actionLoading,
@@ -138,6 +140,7 @@ function AdminShell() {
       setUserStatusFilter,
       statusFilter,
       token,
+      deleteUser,
       updateUserStatus,
       user,
       userSearchQuery,

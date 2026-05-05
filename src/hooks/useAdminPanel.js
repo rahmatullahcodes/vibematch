@@ -233,6 +233,42 @@ export function useAdminPanel(token, isAuthenticated, isAdmin, isVisible = false
     ],
   );
 
+  const deleteUser = useCallback(
+    async (payload) => {
+      if (!isAuthenticated || !token || !isAdmin) {
+        return { ok: false };
+      }
+      setActionLoading(true);
+      setError("");
+      try {
+        await adminService.deleteModerationUser(token, payload);
+        await Promise.all([
+          refreshReports({ background: true }),
+          refreshUsers({ background: true, query: userSearchQuery, status: userStatusFilter }),
+          refreshAudit({ background: true }),
+          refreshAnalytics({ background: true }),
+        ]);
+        return { ok: true };
+      } catch (apiError) {
+        setError(apiError?.message ?? "Unable to delete user.");
+        return { ok: false };
+      } finally {
+        setActionLoading(false);
+      }
+    },
+    [
+      isAdmin,
+      isAuthenticated,
+      refreshAnalytics,
+      refreshAudit,
+      refreshReports,
+      refreshUsers,
+      token,
+      userSearchQuery,
+      userStatusFilter,
+    ],
+  );
+
   useEffect(() => {
     if (!isVisible) {
       return;
@@ -279,5 +315,6 @@ export function useAdminPanel(token, isAuthenticated, isAdmin, isVisible = false
     refreshAnalytics,
     resolveReport,
     updateUserStatus,
+    deleteUser,
   };
 }

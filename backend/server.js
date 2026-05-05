@@ -14,9 +14,61 @@ const PORT = Number(process.env.PORT || 10000);
 app.use(cors());
 app.use(express.json({ limit: "1mb" }));
 
+app.use((req, res, next) => {
+  if (!req.path.startsWith("/api/")) {
+    next();
+    return;
+  }
+
+  if (req.path === "/api/health") {
+    next();
+    return;
+  }
+
+  if (mongoose.connection.readyState !== 1) {
+    res.status(503).json({ message: "Database not connected yet. Please try again shortly." });
+    return;
+  }
+
+  next();
+});
+
 const sessionStore = new Map();
 const moderationReports = [];
 const moderationAudit = [];
+const callSessionsByUserId = new Map();
+const chatThreadsByUserId = new Map();
+const chatMessagesByThreadId = new Map();
+const blockedUsersByUserId = new Map();
+const notificationStateByUserId = new Map();
+const swipeStatsByUserId = new Map();
+const swipeHistoryByUserId = new Map();
+const discoverPostStateById = new Map();
+const discoverReelStateById = new Map();
+
+const SUBSCRIPTION_PLANS = [
+  {
+    id: "starter",
+    name: "Starter",
+    priceLabel: "Free",
+    description: "Core Spark access",
+    features: ["Basic profile", "Limited swipes", "Standard filters"],
+  },
+  {
+    id: "plus",
+    name: "Spark Plus",
+    priceLabel: "$9 / month",
+    description: "More discovery control",
+    features: ["Unlimited swipes", "Advanced filters", "Priority profile"],
+  },
+  {
+    id: "pro",
+    name: "Spark Pro",
+    priceLabel: "$19 / month",
+    description: "Power matching toolkit",
+    features: ["Boosted visibility", "Premium insights", "Fast-track support"],
+  },
+];
 
 function createToken() {
   return crypto.randomBytes(24).toString("hex");
@@ -37,10 +89,150 @@ function normalizeText(value, fallback = "") {
   return value.trim();
 }
 
+function getUserSubscriptionPlanMeta(planId) {
+  return SUBSCRIPTION_PLANS.find((plan) => plan.id === planId) || SUBSCRIPTION_PLANS[0];
+}
+
+function getNotificationState(userId) {
+  if (!notificationStateByUserId.has(userId)) {
+    notificationStateByUserId.set(userId, {
+      notifications: [],
+      preferences: {
+        inAppByType: { system: true, social: true, match: true, message: true, billing: true, safety: true },
+        browserByType: { system: true, social: true, match: true, message: true, billing: false, safety: true },
+        emailByType: { system: false, social: false, match: true, message: true, billing: true, safety: true },
+      },
+    });
+  }
+  return notificationStateByUserId.get(userId);
+}
+
+function addNotification(userId, payload) {
+  const state = getNotificationState(userId);
+  state.notifications.unshift({
+    id: createToken(),
+    type: payload.type || "system",
+    title: payload.title || "Notification",
+    message: payload.message || "",
+    read: false,
+    createdAt: new Date().toISOString(),
+  });
+  state.notifications = state.notifications.slice(0, 120);
+}
+
+function getChatThreads(userId) {
+  if (!chatThreadsByUserId.has(userId)) {
+    chatThreadsByUserId.set(userId, []);
+  }
+  return chatThreadsByUserId.get(userId);
+}
+
+function getBlockedUsers(userId) {
+  if (!blockedUsersByUserId.has(userId)) {
+    blockedUsersByUserId.set(userId, []);
+  }
+  return blockedUsersByUserId.get(userId);
+}
+
+function toCallContact(user) {
+  return {
+    userId: String(user._id),
+    name: user.name || "User",
+    avatar: user.avatar || "",
+    status: user.accountStatus || "active",
+    role: user.role || "user",
+  };
+}
+
+function toSubscriptionPayload(user, extra = {}) {
+  const currentPlan = user.subscriptionPlan || "starter";
+  return {
+    currentPlan,
+    status: user.subscriptionStatus || "free",
+    renewsAt: user.subscriptionRenewsAt || null,
+    plans: SUBSCRIPTION_PLANS.map((plan) => ({
+      ...plan,
+      isCurrent: plan.id === currentPlan,
+    })),
+    billingHistory: [],
+    checkoutSession: null,
+    ...extra,
+  };
+}
+
+function getSwipeStats(userId) {
+  if (!swipeStatsByUserId.has(userId)) {
+    swipeStatsByUserId.set(userId, {
+      likes: 0,
+      matches: 0,
+      superLikes: 0,
+      passes: 0,
+    });
+  }
+  return swipeStatsByUserId.get(userId);
+}
+
+function getSwipeHistory(userId) {
+  if (!swipeHistoryByUserId.has(userId)) {
+    swipeHistoryByUserId.set(userId, []);
+  }
+  return swipeHistoryByUserId.get(userId);
+}
+
+function buildSwipeProfile(user) {
+  const age = Number.isFinite(Number(user.age)) ? Number(user.age) : 25;
+  const compatibility = 72 + Math.min(24, Math.abs((user.name || "").length % 25));
+  return {
+    id: String(user._id),
+    name: user.name || "User",
+    age,
+    city: user.city || "Unknown",
+    intent: user.intent || "dating",
+    avatar: user.avatar || "",
+    bio: user.bio || "",
+    interests: Array.isArray(user.interests) ? user.interests : [],
+    compatibility,
+    distanceKm: Math.max(1, ((user.name || "").length % 17) + 1),
+    verification: user.verification || { phone: false, selfie: false, id: false },
+    details: {
+      lastActiveLabel: "Online now",
+      lastActiveMinutes: 0,
+    },
+    accountStatus: user.accountStatus || "active",
+  };
+}
+
+function ensureDiscoverPostState(postId) {
+  if (!discoverPostStateById.has(postId)) {
+    discoverPostStateById.set(postId, {
+      likedByViewer: false,
+      likesCount: 0,
+      commentsCount: 0,
+      sharesCount: 0,
+      recentComments: [],
+      followingAuthor: false,
+    });
+  }
+  return discoverPostStateById.get(postId);
+}
+
+function ensureDiscoverReelState(reelId) {
+  if (!discoverReelStateById.has(reelId)) {
+    discoverReelStateById.set(reelId, {
+      commentsCount: 0,
+      sharesCount: 0,
+      recentComments: [],
+    });
+  }
+  return discoverReelStateById.get(reelId);
+}
+
 function safeUser(user) {
   if (!user) {
     return null;
   }
+
+  const planMeta = getUserSubscriptionPlanMeta(user.subscriptionPlan || "starter");
 
   return {
     id: String(user._id),
@@ -62,7 +254,12 @@ function safeUser(user) {
     verification: user.verification || { phone: false, selfie: false, id: false },
     subscriptionStatus: user.subscriptionStatus || "free",
     subscriptionPlan: user.subscriptionPlan || "starter",
-    subscriptionPlanMeta: { name: user.subscriptionPlan || "Starter" },
+    subscriptionPlanMeta: {
+      name: planMeta.name,
+      priceLabel: planMeta.priceLabel,
+      description: planMeta.description,
+      features: planMeta.features,
+    },
     subscriptionRenewsAt: user.subscriptionRenewsAt || null,
     profileCompletionScore: user.profileCompletionScore || 0,
     relationshipGoal: user.relationshipGoal || "",
@@ -329,31 +526,597 @@ app.post("/api/auth/verify", requireAuth, async (req, res) => {
 });
 
 app.get("/api/subscription", requireAuth, async (req, res) => {
-  res.json({
-    status: req.user.subscriptionStatus || "free",
-    plan: req.user.subscriptionPlan || "starter",
-    renewsAt: req.user.subscriptionRenewsAt || null,
-  });
+  res.json(toSubscriptionPayload(req.user));
 });
 
 app.post("/api/subscription/update", requireAuth, async (req, res) => {
   try {
-    const plan = normalizeText(req.body?.plan, "starter") || "starter";
+    const plan = normalizeText(req.body?.planId || req.body?.plan, "starter") || "starter";
+    const planMeta = getUserSubscriptionPlanMeta(plan);
+
     req.user.subscriptionPlan = plan;
     req.user.subscriptionStatus = plan === "starter" ? "free" : "active";
     req.user.subscriptionRenewsAt = req.user.subscriptionStatus === "active" ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) : null;
     req.user.lastActiveAt = new Date();
     await req.user.save();
 
-    res.json({
-      status: req.user.subscriptionStatus,
-      plan: req.user.subscriptionPlan,
-      renewsAt: req.user.subscriptionRenewsAt,
-      user: safeUser(req.user),
+    addNotification(String(req.user._id), {
+      type: "billing",
+      title: "Subscription updated",
+      message: `Your plan is now ${planMeta.name}.`,
     });
+
+    res.json(
+      toSubscriptionPayload(req.user, {
+        user: safeUser(req.user),
+      }),
+    );
   } catch (error) {
     res.status(500).json({ message: error?.message || "Unable to update subscription." });
   }
+});
+
+app.post("/api/subscription/checkout", requireAuth, async (req, res) => {
+  const planId = normalizeText(req.body?.planId, "starter") || "starter";
+  const planMeta = getUserSubscriptionPlanMeta(planId);
+
+  if (planMeta.id === "starter") {
+    res.status(400).json({ message: "Starter plan does not require checkout." });
+    return;
+  }
+
+  res.json({
+    session: {
+      id: createToken(),
+      planId: planMeta.id,
+      planName: planMeta.name,
+      amountLabel: planMeta.priceLabel,
+      createdAt: new Date().toISOString(),
+    },
+  });
+});
+
+app.post("/api/subscription/checkout/confirm", requireAuth, async (req, res) => {
+  const sessionId = normalizeText(req.body?.sessionId);
+  const planId = normalizeText(req.body?.planId || req.body?.selectedPlanId || "plus", "plus") || "plus";
+  if (!sessionId) {
+    res.status(400).json({ message: "sessionId is required." });
+    return;
+  }
+
+  const planMeta = getUserSubscriptionPlanMeta(planId);
+  req.user.subscriptionPlan = planMeta.id;
+  req.user.subscriptionStatus = planMeta.id === "starter" ? "free" : "active";
+  req.user.subscriptionRenewsAt = req.user.subscriptionStatus === "active" ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) : null;
+  req.user.lastActiveAt = new Date();
+  await req.user.save();
+
+  addNotification(String(req.user._id), {
+    type: "billing",
+    title: "Payment successful",
+    message: `${planMeta.name} activated successfully.`,
+  });
+
+  res.json(
+    toSubscriptionPayload(req.user, {
+      checkoutSession: null,
+      payment: {
+        id: createToken(),
+        status: "success",
+        amountLabel: planMeta.priceLabel,
+      },
+      user: safeUser(req.user),
+    }),
+  );
+});
+
+app.get("/api/swipe/candidates", requireAuth, async (req, res) => {
+  const currentUserId = String(req.user._id);
+  const users = await User.find({ _id: { $ne: req.user._id }, accountStatus: "active" }).limit(60);
+  const profiles = users.map((entry) => buildSwipeProfile(entry));
+  const stats = getSwipeStats(currentUserId);
+  const history = getSwipeHistory(currentUserId);
+
+  res.json({
+    profiles,
+    stats,
+    history,
+  });
+});
+
+app.post("/api/swipe/action", requireAuth, async (req, res) => {
+  const currentUserId = String(req.user._id);
+  const profileId = normalizeText(req.body?.profileId);
+  const action = normalizeText(req.body?.action).toLowerCase();
+  if (!profileId || !["like", "pass", "superlike"].includes(action)) {
+    res.status(400).json({ message: "Invalid swipe payload." });
+    return;
+  }
+
+  const stats = getSwipeStats(currentUserId);
+  const history = getSwipeHistory(currentUserId);
+  const matched = action !== "pass" && Math.random() < 0.35;
+  const matchedUser = await User.findById(profileId);
+
+  if (action === "pass") {
+    stats.passes += 1;
+  } else if (action === "superlike") {
+    stats.superLikes += 1;
+    if (matched) {
+      stats.matches += 1;
+    }
+  } else {
+    stats.likes += 1;
+    if (matched) {
+      stats.matches += 1;
+    }
+  }
+
+  history.unshift({
+    profileId,
+    action,
+    matched,
+    actedAt: new Date().toISOString(),
+  });
+  swipeHistoryByUserId.set(currentUserId, history.slice(0, 300));
+
+  if (matched && matchedUser) {
+    addNotification(currentUserId, {
+      type: "match",
+      title: "It's a match!",
+      message: `You matched with ${matchedUser.name || "someone new"}.`,
+    });
+  }
+
+  res.json({
+    profileId,
+    matched,
+    matchUser: matched && matchedUser ? safeUser(matchedUser) : null,
+    stats,
+  });
+});
+
+app.get("/api/discover/feed", requireAuth, (_req, res) => {
+  res.json({
+    nearbyCountLabel: "Nearby now",
+    heroTitle: "Discover people and stories",
+    heroDescription: "Fresh recommendations from your city",
+    stories: [],
+    posts: [],
+    reels: [],
+    recommendations: [],
+    spotlightMatches: [],
+    highlight: null,
+    viewerName: _req.user?.name || "Guest",
+  });
+});
+
+app.get("/api/discover/reels", requireAuth, (_req, res) => {
+  res.json({ reels: [] });
+});
+
+app.get("/api/discover/recommendations", requireAuth, (_req, res) => {
+  res.json({ recommendations: [] });
+});
+
+app.post("/api/discover/follow", requireAuth, (req, res) => {
+  const authorId = normalizeText(req.body?.authorId);
+  const state = ensureDiscoverPostState(`author:${authorId || "unknown"}`);
+  state.followingAuthor = !state.followingAuthor;
+  res.json({ following: state.followingAuthor });
+});
+
+app.post("/api/discover/post-like", requireAuth, (req, res) => {
+  const postId = normalizeText(req.body?.postId);
+  const state = ensureDiscoverPostState(postId || "default");
+  state.likedByViewer = !state.likedByViewer;
+  state.likesCount = Math.max(0, state.likesCount + (state.likedByViewer ? 1 : -1));
+  res.json({
+    liked: state.likedByViewer,
+    likesCount: state.likesCount,
+    likesLabel: `${state.likesCount} likes`,
+  });
+});
+
+app.post("/api/discover/post-comment", requireAuth, (req, res) => {
+  const postId = normalizeText(req.body?.postId);
+  const text = normalizeText(req.body?.text);
+  const state = ensureDiscoverPostState(postId || "default");
+  if (text) {
+    state.commentsCount += 1;
+    state.recentComments = [{ id: createToken(), author: req.user.name, text }, ...(state.recentComments || [])].slice(0, 3);
+  }
+  res.json({
+    commentsCount: state.commentsCount,
+    commentsLabel: `${state.commentsCount} comments`,
+    recentComments: state.recentComments || [],
+  });
+});
+
+app.post("/api/discover/post-share", requireAuth, (req, res) => {
+  const postId = normalizeText(req.body?.postId);
+  const state = ensureDiscoverPostState(postId || "default");
+  state.sharesCount += 1;
+  res.json({
+    shareCount: state.sharesCount,
+    shareLabel: `${state.sharesCount} shares`,
+  });
+});
+
+app.post("/api/discover/reel-comment", requireAuth, (req, res) => {
+  const reelId = normalizeText(req.body?.reelId);
+  const text = normalizeText(req.body?.text);
+  const state = ensureDiscoverReelState(reelId || "default");
+  if (text) {
+    state.commentsCount += 1;
+    state.recentComments = [{ id: createToken(), author: req.user.name, text }, ...(state.recentComments || [])].slice(0, 3);
+  }
+  res.json({
+    commentsCount: state.commentsCount,
+    commentsLabel: `${state.commentsCount} comments`,
+    recentComments: state.recentComments || [],
+  });
+});
+
+app.post("/api/discover/reel-share", requireAuth, (req, res) => {
+  const reelId = normalizeText(req.body?.reelId);
+  const state = ensureDiscoverReelState(reelId || "default");
+  state.sharesCount += 1;
+  res.json({
+    shareCount: state.sharesCount,
+    shareLabel: `${state.sharesCount} shares`,
+  });
+});
+
+app.post("/api/discover/search", requireAuth, async (req, res) => {
+  const query = normalizeText(req.body?.query).toLowerCase();
+  const city = normalizeText(req.body?.city);
+  const intent = normalizeText(req.body?.intent).toLowerCase();
+  const minAge = Number.isFinite(Number(req.body?.minAge)) ? Number(req.body.minAge) : 18;
+  const maxAge = Number.isFinite(Number(req.body?.maxAge)) ? Number(req.body.maxAge) : 99;
+
+  const rawUsers = await User.find({ _id: { $ne: req.user._id }, accountStatus: "active" }).limit(120);
+  const profiles = rawUsers.map((entry) => buildSwipeProfile(entry));
+  const results = profiles.filter((profile) => {
+    const passesQuery = !query || profile.name.toLowerCase().includes(query) || profile.city.toLowerCase().includes(query);
+    const passesCity = !city || city === "all" || profile.city === city;
+    const passesIntent = !intent || intent === "all" || String(profile.intent).toLowerCase() === intent;
+    const age = Number(profile.age) || 0;
+    const passesAge = age >= minAge && age <= maxAge;
+    return passesQuery && passesCity && passesIntent && passesAge;
+  });
+
+  const cities = Array.from(new Set(profiles.map((profile) => profile.city).filter(Boolean))).slice(0, 30);
+  const intents = Array.from(new Set(profiles.map((profile) => String(profile.intent).toLowerCase()).filter(Boolean))).slice(0, 12);
+  const interests = Array.from(
+    new Set(
+      profiles
+        .flatMap((profile) => (Array.isArray(profile.interests) ? profile.interests : []))
+        .map((entry) => String(entry).trim())
+        .filter(Boolean),
+    ),
+  ).slice(0, 40);
+
+  res.json({
+    filters: {
+      query,
+      city: city || "",
+      intent: intent || "",
+      interest: normalizeText(req.body?.interest),
+      minAge,
+      maxAge,
+    },
+    total: results.length,
+    results,
+    suggestions: {
+      cities,
+      intents,
+      interests,
+    },
+  });
+});
+
+app.get("/api/chat/user/blocked", requireAuth, (req, res) => {
+  const currentUserId = String(req.user._id);
+  res.json({
+    blockedUsers: getBlockedUsers(currentUserId),
+  });
+});
+
+app.get("/api/chat/threads", requireAuth, (req, res) => {
+  const currentUserId = String(req.user._id);
+  res.json(getChatThreads(currentUserId));
+});
+
+app.get("/api/chat/threads/:threadId/messages", requireAuth, (req, res) => {
+  const threadId = normalizeText(req.params?.threadId);
+  const list = Array.isArray(chatMessagesByThreadId.get(threadId)) ? chatMessagesByThreadId.get(threadId) : [];
+  res.json({ messages: list });
+});
+
+app.post("/api/chat/messages", requireAuth, (req, res) => {
+  const currentUserId = String(req.user._id);
+  const threadId = normalizeText(req.body?.threadId, `thread_${currentUserId}`) || `thread_${currentUserId}`;
+  const text = normalizeText(req.body?.text);
+  if (!text) {
+    res.status(400).json({ message: "Message text is required." });
+    return;
+  }
+
+  const message = {
+    id: createToken(),
+    threadId,
+    from: "me",
+    text,
+    createdAt: new Date().toISOString(),
+    deliveryStatus: "sent",
+    reactions: [],
+  };
+
+  const currentMessages = Array.isArray(chatMessagesByThreadId.get(threadId)) ? chatMessagesByThreadId.get(threadId) : [];
+  chatMessagesByThreadId.set(threadId, [...currentMessages, message]);
+
+  const threadList = getChatThreads(currentUserId);
+  if (!threadList.some((thread) => thread.id === threadId)) {
+    threadList.unshift({
+      id: threadId,
+      kind: "direct",
+      title: "New conversation",
+      peerUserId: normalizeText(req.body?.peerUserId),
+      updatedAt: message.createdAt,
+      lastMessagePreview: text.slice(0, 120),
+      unreadCount: 0,
+      status: "Online",
+    });
+  } else {
+    for (const thread of threadList) {
+      if (thread.id === threadId) {
+        thread.updatedAt = message.createdAt;
+        thread.lastMessagePreview = text.slice(0, 120);
+      }
+    }
+  }
+
+  res.json({ message });
+});
+
+app.post("/api/chat/typing", requireAuth, (_req, res) => {
+  res.json({ ok: true });
+});
+
+app.post("/api/chat/read", requireAuth, (req, res) => {
+  const threadId = normalizeText(req.body?.threadId);
+  const list = Array.isArray(chatMessagesByThreadId.get(threadId)) ? chatMessagesByThreadId.get(threadId) : [];
+  const updatedMessageIds = list.filter((message) => message.from === "them").map((message) => message.id);
+  res.json({ updatedMessageIds });
+});
+
+app.post("/api/chat/messages/react", requireAuth, (req, res) => {
+  const threadId = normalizeText(req.body?.threadId);
+  const messageId = normalizeText(req.body?.messageId);
+  const emoji = normalizeText(req.body?.emoji);
+  const list = Array.isArray(chatMessagesByThreadId.get(threadId)) ? chatMessagesByThreadId.get(threadId) : [];
+  const nextList = list.map((message) => {
+    if (message.id !== messageId) {
+      return message;
+    }
+    const reactions = Array.isArray(message.reactions) ? [...message.reactions] : [];
+    const existingIndex = reactions.findIndex((reaction) => reaction.emoji === emoji && reaction.from === "me");
+    if (existingIndex >= 0) {
+      reactions.splice(existingIndex, 1);
+    } else {
+      reactions.push({ emoji, from: "me" });
+    }
+    return {
+      ...message,
+      reactions,
+    };
+  });
+  chatMessagesByThreadId.set(threadId, nextList);
+  res.json({
+    message: nextList.find((message) => message.id === messageId) || null,
+  });
+});
+
+app.post("/api/chat/messages/delete", requireAuth, (req, res) => {
+  const threadId = normalizeText(req.body?.threadId);
+  const messageId = normalizeText(req.body?.messageId);
+  const list = Array.isArray(chatMessagesByThreadId.get(threadId)) ? chatMessagesByThreadId.get(threadId) : [];
+  chatMessagesByThreadId.set(
+    threadId,
+    list.filter((message) => message.id !== messageId),
+  );
+  res.json({ ok: true });
+});
+
+app.post("/api/chat/messages/report", requireAuth, (_req, res) => {
+  res.json({ ok: true });
+});
+
+app.post("/api/chat/user/report", requireAuth, (req, res) => {
+  const targetUserId = normalizeText(req.body?.targetUserId);
+  const reason = normalizeText(req.body?.reason, "Safety concern") || "Safety concern";
+
+  moderationReports.unshift({
+    id: createToken(),
+    status: "open",
+    reporterUserId: String(req.user._id),
+    reporterName: req.user.name,
+    targetUserId,
+    targetUserName: "User",
+    reason,
+    createdAt: new Date().toISOString(),
+  });
+
+  res.json({ ok: true });
+});
+
+app.post("/api/chat/user/block", requireAuth, (req, res) => {
+  const currentUserId = String(req.user._id);
+  const targetUserId = normalizeText(req.body?.targetUserId);
+  if (!targetUserId) {
+    res.status(400).json({ message: "targetUserId is required." });
+    return;
+  }
+  const blocked = getBlockedUsers(currentUserId);
+  if (!blocked.some((entry) => entry.userId === targetUserId)) {
+    blocked.push({
+      userId: targetUserId,
+      name: "Blocked user",
+      blockedAt: new Date().toISOString(),
+    });
+  }
+  res.json({ ok: true });
+});
+
+app.post("/api/chat/user/unblock", requireAuth, (req, res) => {
+  const currentUserId = String(req.user._id);
+  const targetUserId = normalizeText(req.body?.targetUserId);
+  blockedUsersByUserId.set(
+    currentUserId,
+    getBlockedUsers(currentUserId).filter((entry) => entry.userId !== targetUserId),
+  );
+  res.json({ ok: true });
+});
+
+app.post("/api/chat/user/unmatch", requireAuth, (req, res) => {
+  const currentUserId = String(req.user._id);
+  const targetUserId = normalizeText(req.body?.targetUserId);
+  chatThreadsByUserId.set(
+    currentUserId,
+    getChatThreads(currentUserId).filter((thread) => thread.peerUserId !== targetUserId),
+  );
+  res.json({ ok: true });
+});
+
+app.get("/api/calls", requireAuth, async (req, res) => {
+  const currentUserId = String(req.user._id);
+  const activeSession = callSessionsByUserId.get(currentUserId) || null;
+  const contacts = (await User.find({ _id: { $ne: req.user._id }, accountStatus: "active" }).limit(20)).map((user) => toCallContact(user));
+  res.json({
+    activeSession,
+    recentSessions: [],
+    contacts,
+  });
+});
+
+app.post("/api/calls/start", requireAuth, async (req, res) => {
+  const currentUserId = String(req.user._id);
+  const peerUserId = normalizeText(req.body?.peerUserId);
+  const type = normalizeText(req.body?.type, "voice") || "voice";
+  if (!peerUserId) {
+    res.status(400).json({ message: "peerUserId is required." });
+    return;
+  }
+
+  const peerUser = await User.findById(peerUserId);
+  const session = {
+    id: createToken(),
+    peerUserId,
+    peerName: peerUser?.name || "User",
+    peerAvatar: peerUser?.avatar || "",
+    direction: "outgoing",
+    status: "ringing",
+    type: type === "video" ? "video" : "voice",
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    durationLabel: "0:00",
+  };
+  callSessionsByUserId.set(currentUserId, session);
+  res.json({ session });
+});
+
+app.post("/api/calls/respond", requireAuth, (req, res) => {
+  const currentUserId = String(req.user._id);
+  const sessionId = normalizeText(req.body?.sessionId);
+  const action = normalizeText(req.body?.action).toLowerCase();
+  const session = callSessionsByUserId.get(currentUserId);
+  if (!session || session.id !== sessionId) {
+    res.status(404).json({ message: "Call session not found." });
+    return;
+  }
+
+  if (action === "accept") {
+    session.status = "accepted";
+    session.answeredAt = new Date().toISOString();
+  } else if (action === "decline" || action === "cancel" || action === "end") {
+    callSessionsByUserId.delete(currentUserId);
+    res.json({ session: null });
+    return;
+  } else {
+    res.status(400).json({ message: "Invalid call action." });
+    return;
+  }
+  session.updatedAt = new Date().toISOString();
+  callSessionsByUserId.set(currentUserId, session);
+  res.json({ session });
+});
+
+app.post("/api/calls/signal", requireAuth, (_req, res) => {
+  res.json({ success: true });
+});
+
+app.get("/api/notifications", requireAuth, (req, res) => {
+  const state = getNotificationState(String(req.user._id));
+  const notifications = Array.isArray(state.notifications) ? state.notifications : [];
+  const unreadCount = notifications.filter((item) => !item.read).length;
+  res.json({
+    notifications,
+    unreadCount,
+    queuedEmailCount: notifications.filter((item) => !item.read && item.type === "billing").length,
+    preferences: state.preferences,
+  });
+});
+
+app.post("/api/notifications/read", requireAuth, (req, res) => {
+  const notificationId = normalizeText(req.body?.notificationId);
+  const state = getNotificationState(String(req.user._id));
+  state.notifications = (state.notifications || []).map((item) =>
+    item.id === notificationId
+      ? {
+          ...item,
+          read: true,
+        }
+      : item,
+  );
+  const unreadCount = state.notifications.filter((item) => !item.read).length;
+  res.json({ unreadCount });
+});
+
+app.post("/api/notifications/read-all", requireAuth, (req, res) => {
+  const state = getNotificationState(String(req.user._id));
+  state.notifications = (state.notifications || []).map((item) => ({
+    ...item,
+    read: true,
+  }));
+  res.json({ unreadCount: 0 });
+});
+
+app.get("/api/notifications/preferences", requireAuth, (req, res) => {
+  const state = getNotificationState(String(req.user._id));
+  res.json({ preferences: state.preferences });
+});
+
+app.post("/api/notifications/preferences", requireAuth, (req, res) => {
+  const state = getNotificationState(String(req.user._id));
+  const channel = normalizeText(req.body?.channel);
+  const type = normalizeText(req.body?.type);
+  const enabled = Boolean(req.body?.enabled);
+
+  if (!channel || !type || !state.preferences?.[`${channel}ByType`]) {
+    res.status(400).json({ message: "Invalid preference payload." });
+    return;
+  }
+
+  state.preferences = {
+    ...state.preferences,
+    [`${channel}ByType`]: {
+      ...state.preferences[`${channel}ByType`],
+      [type]: enabled,
+    },
+  };
+
+  res.json({ preferences: state.preferences });
 });
 
 app.get("/api/admin/users", requireAuth, requireAdmin, async (_req, res) => {
@@ -436,6 +1199,57 @@ app.post("/api/moderation/users/status", requireAuth, requireAdmin, async (req, 
     res.json({ ok: true, user: safeUser(target) });
   } catch (error) {
     res.status(500).json({ message: error?.message || "Unable to update user status." });
+  }
+});
+
+app.post("/api/moderation/users/delete", requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const targetUserId = normalizeText(req.body?.targetUserId);
+    const reason = normalizeText(req.body?.reason, "Deleted by admin") || "Deleted by admin";
+
+    if (!targetUserId) {
+      res.status(400).json({ message: "targetUserId is required." });
+      return;
+    }
+
+    if (String(req.user._id) === targetUserId) {
+      res.status(400).json({ message: "You cannot delete your own admin account." });
+      return;
+    }
+
+    const target = await User.findById(targetUserId);
+    if (!target) {
+      res.status(404).json({ message: "User not found." });
+      return;
+    }
+
+    if (target.role === "admin") {
+      res.status(400).json({ message: "Admin account cannot be deleted." });
+      return;
+    }
+
+    await User.deleteOne({ _id: target._id });
+
+    for (const [token, session] of sessionStore.entries()) {
+      if (session?.userId === targetUserId) {
+        sessionStore.delete(token);
+      }
+    }
+
+    moderationAudit.unshift({
+      id: createToken(),
+      action: "delete_user",
+      actorId: String(req.user._id),
+      actorName: req.user.name,
+      targetUserId: String(target._id),
+      targetName: target.name,
+      reason,
+      createdAt: new Date().toISOString(),
+    });
+
+    res.json({ ok: true, deletedUserId: targetUserId });
+  } catch (error) {
+    res.status(500).json({ message: error?.message || "Unable to delete user." });
   }
 });
 

@@ -4689,6 +4689,51 @@ export async function updateUserModerationStatus(token, payload) {
   };
 }
 
+export async function deleteModerationUser(token, payload) {
+  hydrateFromStorage();
+  const adminUser = requireAdmin(token);
+  await simulateNetworkDelay(180);
+
+  const targetUserId = typeof payload?.targetUserId === "string" ? payload.targetUserId : "";
+  const reason = typeof payload?.reason === "string" ? payload.reason.trim() : "";
+  if (!targetUserId) {
+    throw new Error("targetUserId is required.");
+  }
+
+  if (adminUser.id === targetUserId) {
+    throw new Error("You cannot delete your own admin account.");
+  }
+
+  const targetUser = users.find((item) => item.id === targetUserId);
+  if (!targetUser) {
+    throw new Error("Target user not found.");
+  }
+
+  if (targetUser.role === "admin") {
+    throw new Error("Admin account cannot be deleted.");
+  }
+
+  users = users.filter((item) => item.id !== targetUserId);
+  persistUsers();
+
+  safetyState.reports = (safetyState.reports ?? []).filter(
+    (report) => report.targetUserId !== targetUserId && report.reporterUserId !== targetUserId,
+  );
+  appendModerationAudit({
+    actorUserId: adminUser.id,
+    targetUserId,
+    reportId: "",
+    action: "delete_user",
+    note: reason || "Deleted by admin",
+  });
+  persistSafetyState();
+
+  return {
+    success: true,
+    deletedUserId: targetUserId,
+  };
+}
+
 export async function getAnalyticsDashboard(token) {
   hydrateFromStorage();
   requireAdmin(token);

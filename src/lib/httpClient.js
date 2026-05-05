@@ -18,6 +18,10 @@ function sleep(ms) {
   });
 }
 
+function isLocalApiBaseUrl(url) {
+  return /^https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?(?:\/|$)/i.test(String(url || ""));
+}
+
 export async function request(path, options = {}) {
   const { method = "GET", data, token, headers = {} } = options;
   const endpoint = `${API_BASE_URL}${path}`;
@@ -46,8 +50,9 @@ export async function request(path, options = {}) {
   }
 
   if (networkError || !response) {
-    const networkMessage =
-      `Unable to reach backend API at ${API_BASE_URL}. Check backend status, CORS, and Vercel env config.`;
+    const networkMessage = isLocalApiBaseUrl(API_BASE_URL)
+      ? `Unable to reach local backend at ${API_BASE_URL}. Start backend with \`npm run backend\`, then retry.`
+      : `Unable to reach backend API at ${API_BASE_URL}. Check backend status, CORS, and Vercel env config.`;
     throw new ApiError(networkMessage, 0, {
       endpoint,
       originalError: networkError?.message || "Network error",

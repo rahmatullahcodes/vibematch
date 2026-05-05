@@ -3,13 +3,23 @@ import mongoose from "mongoose";
 import cors from "cors";
 import dotenv from "dotenv";
 import crypto from "node:crypto";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 import User from "./models/User.js";
 
-dotenv.config();
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const backendEnvPath = path.resolve(__dirname, ".env");
+const rootEnvPath = path.resolve(__dirname, "..", ".env");
+
+// Prefer backend/.env for local backend runs, then fallback to root .env.
+dotenv.config({ path: backendEnvPath });
+dotenv.config({ path: rootEnvPath });
 
 const app = express();
 const PORT = Number(process.env.PORT || 10000);
+let dbConnectionIssue = "";
 
 const DEFAULT_ALLOWED_ORIGINS = [
   "http://127.0.0.1:5173",
@@ -82,7 +92,10 @@ app.use((req, res, next) => {
   }
 
   if (mongoose.connection.readyState !== 1) {
-    res.status(503).json({ message: "Database not connected yet. Please try again shortly." });
+    res.status(503).json({
+      message: dbConnectionIssue || "Database not connected yet. Please try again shortly.",
+      dbState: mongoose.connection.readyState,
+    });
     return;
   }
 
@@ -450,6 +463,7 @@ app.get("/api/health", (_req, res) => {
   res.json({
     status: "ok",
     dbState: mongoose.connection.readyState,
+    dbIssue: dbConnectionIssue,
   });
 });
 
@@ -1457,17 +1471,21 @@ async function connectMongoWithRetry() {
   }
 
   if (!process.env.MONGO_URI) {
+    dbConnectionIssue = "MONGO_URI missing. Add MongoDB URI in your .env or Render environment variables.";
     console.error("[DB] MONGO_URI missing. Set it in environment variables.");
     return;
   }
 
+  dbConnectionIssue = "Connecting to MongoDB...";
   mongoConnecting = true;
   try {
     await mongoose.connect(process.env.MONGO_URI, {
       serverSelectionTimeoutMS: 10_000,
     });
+    dbConnectionIssue = "";
     console.log("MongoDB Connected");
   } catch (error) {
+    dbConnectionIssue = `MongoDB connection failed: ${error?.message || "Unknown error"}`;
     console.error("[DB] MongoDB connection failed:", error?.message || error);
     setTimeout(connectMongoWithRetry, 5_000);
   } finally {
@@ -1476,11 +1494,13 @@ async function connectMongoWithRetry() {
 }
 
 mongoose.connection.on("disconnected", () => {
+  dbConnectionIssue = "MongoDB disconnected. Retrying...";
   console.warn("[DB] MongoDB disconnected. Reconnecting...");
   setTimeout(connectMongoWithRetry, 2_000);
 });
 
 mongoose.connection.on("error", (error) => {
+  dbConnectionIssue = `MongoDB error: ${error?.message || "Unknown error"}`;
   console.error("[DB] MongoDB error:", error?.message || error);
 });
 

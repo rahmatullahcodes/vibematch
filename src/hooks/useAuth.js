@@ -79,7 +79,8 @@ export function useAuth() {
         });
         return { ok: true };
       } catch (apiError) {
-        const message = apiError?.message ?? "Unable to login.";
+        const endpoint = apiError?.details?.endpoint ? ` [${apiError.details.endpoint}]` : "";
+        const message = (apiError?.message ?? "Unable to login.") + endpoint;
         setError(message);
         return { ok: false, error: message };
       } finally {
@@ -101,7 +102,8 @@ export function useAuth() {
         });
         return { ok: true };
       } catch (apiError) {
-        const message = apiError?.message ?? "Unable to create account.";
+        const endpoint = apiError?.details?.endpoint ? ` [${apiError.details.endpoint}]` : "";
+        const message = (apiError?.message ?? "Unable to create account.") + endpoint;
         setError(message);
         return { ok: false, error: message };
       } finally {

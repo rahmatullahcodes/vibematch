@@ -10,6 +10,7 @@ function AdminLoginPage() {
     password: "",
   });
   const [localError, setLocalError] = useState("");
+  const healthUrl = `${API_BASE_URL.replace(/\/+$/, "")}/health`;
 
   useEffect(() => {
     if (!isAuthenticated || !user) {
@@ -152,6 +153,14 @@ function AdminLoginPage() {
                 <p className="rounded-xl border border-white/15 bg-white/5 px-3 py-2 font-mono text-[11px] text-slate-300">
                   API: {API_BASE_URL}
                 </p>
+                <a
+                  href={healthUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="block rounded-xl border border-white/15 bg-white/5 px-3 py-2 font-mono text-[11px] text-aqua transition hover:bg-white/10"
+                >
+                  Health: {healthUrl}
+                </a>
               </div>
             )}
           </section>

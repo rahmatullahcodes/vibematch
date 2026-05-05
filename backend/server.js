@@ -178,6 +178,10 @@ const SUBSCRIPTION_PLANS = [
   },
 ];
 
+const AUTO_SEED_DEMO_ADMIN = (process.env.AUTO_SEED_DEMO_ADMIN ?? "true") === "true";
+const DEMO_ADMIN_EMAIL = normalizeText(process.env.DEMO_ADMIN_EMAIL, "demo@spark.app").toLowerCase();
+const DEMO_ADMIN_PASSWORD = normalizeText(process.env.DEMO_ADMIN_PASSWORD, "demo1234");
+
 function createToken() {
   return crypto.randomBytes(24).toString("hex");
 }
@@ -494,6 +498,52 @@ function summarizeReports(reports) {
   return summary;
 }
 
+async function ensureDemoAdminUser() {
+  if (!AUTO_SEED_DEMO_ADMIN) {
+    return;
+  }
+
+  if (!DEMO_ADMIN_EMAIL || !DEMO_ADMIN_PASSWORD) {
+    console.warn("[AUTH] Demo admin seed skipped: DEMO_ADMIN_EMAIL or DEMO_ADMIN_PASSWORD missing.");
+    return;
+  }
+
+  const existing = await User.findOne({ email: DEMO_ADMIN_EMAIL });
+  if (existing) {
+    let changed = false;
+    if (existing.role !== "admin") {
+      existing.role = "admin";
+      changed = true;
+    }
+    if (existing.accountStatus !== "active") {
+      existing.accountStatus = "active";
+      existing.suspendedUntil = null;
+      existing.suspensionReason = "";
+      changed = true;
+    }
+    if (changed) {
+      existing.lastActiveAt = new Date();
+      await existing.save();
+      console.log(`[AUTH] Demo admin updated: ${DEMO_ADMIN_EMAIL}`);
+    }
+    return;
+  }
+
+  const seeded = await User.create({
+    name: "Demo Admin",
+    email: DEMO_ADMIN_EMAIL,
+    password: DEMO_ADMIN_PASSWORD,
+    role: "admin",
+    accountStatus: "active",
+    profileCompletionScore: 90,
+    intent: "networking",
+    city: "Mumbai",
+    lastActiveAt: new Date(),
+    handle: "@demoadmin",
+  });
+  console.log(`[AUTH] Demo admin seeded: ${seeded.email}`);
+}
+
 app.get("/", (_req, res) => {
   res.send("Server Running");
 });
@@ -577,12 +627,12 @@ app.post("/api/auth/login", async (req, res) => {
     const user = await User.findOne({ email });
 
     if (!user) {
-      res.status(404).json({ message: "User not found" });
+      res.status(401).json({ message: "Invalid credentials" });
       return;
     }
 
     if (!passwordMatches(user.password, password)) {
-      res.status(401).json({ message: "Wrong password" });
+      res.status(401).json({ message: "Invalid credentials" });
       return;
     }
 
@@ -1524,6 +1574,7 @@ async function connectMongoWithRetry() {
     await mongoose.connect(process.env.MONGO_URI, {
       serverSelectionTimeoutMS: 10_000,
     });
+    await ensureDemoAdminUser();
     dbConnectionIssue = "";
     console.log("MongoDB Connected");
   } catch (error) {

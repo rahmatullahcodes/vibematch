@@ -11,16 +11,27 @@ class ApiError extends Error {
 
 export async function request(path, options = {}) {
   const { method = "GET", data, token, headers = {} } = options;
+  const endpoint = `${API_BASE_URL}${path}`;
 
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    method,
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...headers,
-    },
-    body: data ? JSON.stringify(data) : undefined,
-  });
+  let response;
+  try {
+    response = await fetch(endpoint, {
+      method,
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...headers,
+      },
+      body: data ? JSON.stringify(data) : undefined,
+    });
+  } catch (error) {
+    const networkMessage =
+      "Unable to reach backend API. Check VITE_API_BASE_URL, backend status, and CORS settings.";
+    throw new ApiError(networkMessage, 0, {
+      endpoint,
+      originalError: error?.message || "Network error",
+    });
+  }
 
   const rawText = await response.text();
   const parsedBody = rawText ? safeJsonParse(rawText) : null;

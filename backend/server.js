@@ -89,6 +89,34 @@ function normalizeText(value, fallback = "") {
   return value.trim();
 }
 
+function passwordMatches(storedPassword, inputPassword) {
+  if (typeof storedPassword !== "string" || typeof inputPassword !== "string") {
+    return false;
+  }
+
+  if (storedPassword === inputPassword) {
+    return true;
+  }
+
+  const segments = storedPassword.split(":");
+  if (segments.length !== 2) {
+    return false;
+  }
+
+  const [salt, hashHex] = segments;
+  const isLegacyHash = /^[a-f0-9]{32}$/i.test(salt) && /^[a-f0-9]{128}$/i.test(hashHex);
+  if (!isLegacyHash) {
+    return false;
+  }
+
+  try {
+    const computedHex = crypto.scryptSync(inputPassword, salt, 64).toString("hex");
+    return crypto.timingSafeEqual(Buffer.from(computedHex, "hex"), Buffer.from(hashHex, "hex"));
+  } catch {
+    return false;
+  }
+}
+
 function getUserSubscriptionPlanMeta(planId) {
   return SUBSCRIPTION_PLANS.find((plan) => plan.id === planId) || SUBSCRIPTION_PLANS[0];
 }
@@ -432,10 +460,27 @@ app.post("/api/auth/login", async (req, res) => {
       return;
     }
 
-    const user = await User.findOne({ email, password });
+    console.log(`[AUTH][LOGIN] email=${email} passLen=${password.length}`);
+
+    const user = await User.findOne({ email });
 
     if (!user) {
-      res.status(401).json({ message: "Invalid credentials" });
+      res.status(404).json({ message: "User not found" });
+      return;
+    }
+
+    if (!passwordMatches(user.password, password)) {
+      res.status(401).json({ message: "Wrong password" });
+      return;
+    }
+
+    if (user.accountStatus === "banned") {
+      res.status(403).json({ message: "Your account is banned. Contact support." });
+      return;
+    }
+    if (user.accountStatus === "suspended") {
+      const until = user.suspendedUntil ? new Date(user.suspendedUntil).toISOString() : "unknown time";
+      res.status(403).json({ message: `Your account is suspended until ${until}` });
       return;
     }
 
@@ -1206,6 +1251,7 @@ app.post("/api/moderation/users/delete", requireAuth, requireAdmin, async (req, 
   try {
     const targetUserId = normalizeText(req.body?.targetUserId);
     const reason = normalizeText(req.body?.reason, "Deleted by admin") || "Deleted by admin";
+    console.log(`[ADMIN][DELETE] actor=${req.user?.email || req.user?._id || "unknown"} target=${targetUserId || "none"}`);
 
     if (!targetUserId) {
       res.status(400).json({ message: "targetUserId is required." });
@@ -1247,8 +1293,10 @@ app.post("/api/moderation/users/delete", requireAuth, requireAdmin, async (req, 
       createdAt: new Date().toISOString(),
     });
 
+    console.log(`[ADMIN][DELETE] success target=${targetUserId}`);
     res.json({ ok: true, deletedUserId: targetUserId });
   } catch (error) {
+    console.error("[ADMIN][DELETE] failed", error);
     res.status(500).json({ message: error?.message || "Unable to delete user." });
   }
 });

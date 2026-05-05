@@ -78,6 +78,7 @@ function AdminUsersPage() {
     setUserSearchQuery,
     actionLoading,
     usersLoading,
+    error,
     updateUserStatus,
     deleteUser,
     refreshUsers,
@@ -165,6 +166,11 @@ function AdminUsersPage() {
       </section>
 
       <section className="glass rounded-3xl p-5">
+        {error ? (
+          <p className="mb-3 rounded-xl border border-red-500/35 bg-red-500/10 px-3 py-2 text-xs font-semibold text-red-100">
+            {error}
+          </p>
+        ) : null}
         <div className="flex flex-col gap-3 lg:flex-row">
           <input
             value={userSearchQuery}
@@ -527,7 +533,7 @@ function AdminUsersPage() {
                 className="inline-flex items-center gap-1 rounded-lg border border-red-500/35 bg-red-500/20 px-3 py-2 text-xs font-semibold text-red-100 disabled:opacity-60"
               >
                 <Icon path={userActionIcons.delete} className="h-3.5 w-3.5" />
-                Delete Permanently
+                {actionLoading ? "Deleting..." : "Delete Permanently"}
               </button>
             </div>
           </section>

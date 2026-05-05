@@ -459,13 +459,16 @@ app.get("/", (_req, res) => {
   res.send("Server Running");
 });
 
-app.get("/api/health", (_req, res) => {
+function healthHandler(_req, res) {
   res.json({
     status: "ok",
     dbState: mongoose.connection.readyState,
     dbIssue: dbConnectionIssue,
   });
-});
+}
+
+app.get("/api/health", healthHandler);
+app.get("/health", healthHandler);
 
 async function registerHandler(req, res) {
   try {

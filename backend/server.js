@@ -33,12 +33,12 @@ function parseAllowedOrigins(value) {
     return DEFAULT_ALLOWED_ORIGINS;
   }
 
-  const origins = value
+  const originsFromEnv = value
     .split(",")
     .map((origin) => origin.trim())
     .filter(Boolean);
 
-  return origins.length ? origins : DEFAULT_ALLOWED_ORIGINS;
+  return Array.from(new Set([...DEFAULT_ALLOWED_ORIGINS, ...originsFromEnv]));
 }
 
 const allowedOrigins = parseAllowedOrigins(process.env.CORS_ALLOWED_ORIGINS);

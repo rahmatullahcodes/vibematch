@@ -9,6 +9,22 @@ function isLocalhostBaseUrl(url) {
   return /^https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?(?:\/|$)/i.test(url);
 }
 
+function ensureApiPath(url) {
+  try {
+    const parsed = new URL(url);
+    const pathname = stripTrailingSlash(parsed.pathname || "");
+
+    if (!pathname || pathname === "/") {
+      parsed.pathname = "/api";
+      return stripTrailingSlash(parsed.toString());
+    }
+
+    return stripTrailingSlash(parsed.toString());
+  } catch {
+    return stripTrailingSlash(url);
+  }
+}
+
 function resolveApiBaseUrl() {
   const rawEnvValue = import.meta.env.VITE_API_BASE_URL;
   const fromEnv = typeof rawEnvValue === "string" ? stripTrailingSlash(rawEnvValue.trim()) : "";
@@ -21,7 +37,7 @@ function resolveApiBaseUrl() {
     return DEFAULT_PROD_API_BASE_URL;
   }
 
-  return fromEnv;
+  return ensureApiPath(fromEnv);
 }
 
 export const API_BASE_URL = resolveApiBaseUrl();

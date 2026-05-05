@@ -118,6 +118,13 @@ app.use((req, res, next) => {
     return;
   }
 
+  // CORS preflight requests must always return 2xx, otherwise browser blocks
+  // the actual API call and surfaces it as a network error.
+  if (req.method === "OPTIONS") {
+    next();
+    return;
+  }
+
   if (req.path === "/api/health") {
     next();
     return;

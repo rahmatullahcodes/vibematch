@@ -103,12 +103,6 @@ function HomePage() {
                 Launch App
               </Link>
               <Link
-                to="/admin/login"
-                className="w-full rounded-2xl border border-aqua/45 bg-aqua/15 px-6 py-3 text-center text-sm font-semibold text-aqua transition hover:bg-aqua/25 sm:w-auto"
-              >
-                Admin Login
-              </Link>
-              <Link
                 to="/app?tab=auth"
                 className="w-full rounded-2xl border border-aqua/45 bg-aqua/15 px-6 py-3 text-center text-sm font-semibold text-aqua transition hover:bg-aqua/25 sm:w-auto"
               >

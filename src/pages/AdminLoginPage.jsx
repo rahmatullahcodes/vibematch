@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, Navigate } from "react-router-dom";
+import { API_BASE_URL } from "../config/env";
 import { useAuth } from "../hooks/useAuth";
 
 function AdminLoginPage() {
@@ -144,9 +145,14 @@ function AdminLoginPage() {
             )}
 
             {(error || localError) && !isAuthenticated && (
-              <p className="mt-4 rounded-2xl border border-red-400/35 bg-red-500/10 px-4 py-3 text-sm text-red-100">
-                {error || localError}
-              </p>
+              <div className="mt-4 space-y-2">
+                <p className="rounded-2xl border border-red-400/35 bg-red-500/10 px-4 py-3 text-sm text-red-100">
+                  {error || localError}
+                </p>
+                <p className="rounded-xl border border-white/15 bg-white/5 px-3 py-2 font-mono text-[11px] text-slate-300">
+                  API: {API_BASE_URL}
+                </p>
+              </div>
             )}
           </section>
         </div>

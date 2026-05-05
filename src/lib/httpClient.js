@@ -9,27 +9,48 @@ class ApiError extends Error {
   }
 }
 
+const NETWORK_RETRY_COUNT = 1;
+const NETWORK_RETRY_DELAY_MS = 1200;
+
+function sleep(ms) {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
+}
+
 export async function request(path, options = {}) {
   const { method = "GET", data, token, headers = {} } = options;
   const endpoint = `${API_BASE_URL}${path}`;
 
   let response;
-  try {
-    response = await fetch(endpoint, {
-      method,
-      headers: {
-        "Content-Type": "application/json",
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        ...headers,
-      },
-      body: data ? JSON.stringify(data) : undefined,
-    });
-  } catch (error) {
+  let networkError = null;
+  for (let attempt = 0; attempt <= NETWORK_RETRY_COUNT; attempt += 1) {
+    try {
+      response = await fetch(endpoint, {
+        method,
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          ...headers,
+        },
+        body: data ? JSON.stringify(data) : undefined,
+      });
+      networkError = null;
+      break;
+    } catch (error) {
+      networkError = error;
+      if (attempt < NETWORK_RETRY_COUNT) {
+        await sleep(NETWORK_RETRY_DELAY_MS);
+      }
+    }
+  }
+
+  if (networkError || !response) {
     const networkMessage =
-      "Unable to reach backend API. Check VITE_API_BASE_URL, backend status, and CORS settings.";
+      `Unable to reach backend API at ${API_BASE_URL}. Check backend status, CORS, and Vercel env config.`;
     throw new ApiError(networkMessage, 0, {
       endpoint,
-      originalError: error?.message || "Network error",
+      originalError: networkError?.message || "Network error",
     });
   }
 

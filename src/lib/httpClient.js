@@ -11,6 +11,7 @@ class ApiError extends Error {
 
 const NETWORK_RETRY_COUNT = 1;
 const NETWORK_RETRY_DELAY_MS = 1200;
+const DIRECT_FALLBACK_API_BASE_URL = "https://vibematch-qqou.onrender.com/api";
 
 function sleep(ms) {
   return new Promise((resolve) => {
@@ -22,23 +23,17 @@ function isLocalApiBaseUrl(url) {
   return /^https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?(?:\/|$)/i.test(String(url || ""));
 }
 
-export async function request(path, options = {}) {
-  const { method = "GET", data, token, headers = {} } = options;
-  const endpoint = `${API_BASE_URL}${path}`;
+function isRelativeApiBaseUrl(url) {
+  return typeof url === "string" && url.startsWith("/");
+}
 
+async function fetchWithRetry(endpoint, fetchOptions) {
   let response;
   let networkError = null;
+
   for (let attempt = 0; attempt <= NETWORK_RETRY_COUNT; attempt += 1) {
     try {
-      response = await fetch(endpoint, {
-        method,
-        headers: {
-          "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          ...headers,
-        },
-        body: data ? JSON.stringify(data) : undefined,
-      });
+      response = await fetch(endpoint, fetchOptions);
       networkError = null;
       break;
     } catch (error) {
@@ -48,6 +43,25 @@ export async function request(path, options = {}) {
       }
     }
   }
+
+  return { response, networkError };
+}
+
+export async function request(path, options = {}) {
+  const { method = "GET", data, token, headers = {} } = options;
+  const primaryEndpoint = `${API_BASE_URL}${path}`;
+  const fetchOptions = {
+    method,
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...headers,
+    },
+    body: data ? JSON.stringify(data) : undefined,
+  };
+
+  let endpoint = primaryEndpoint;
+  let { response, networkError } = await fetchWithRetry(endpoint, fetchOptions);
 
   if (networkError || !response) {
     const networkMessage = isLocalApiBaseUrl(API_BASE_URL)
@@ -59,8 +73,24 @@ export async function request(path, options = {}) {
     });
   }
 
-  const rawText = await response.text();
-  const parsedBody = rawText ? safeJsonParse(rawText) : null;
+  let rawText = await response.text();
+  let parsedBody = rawText ? safeJsonParse(rawText) : null;
+
+  const shouldTryDirectFallback =
+    response.status === 404 &&
+    isRelativeApiBaseUrl(API_BASE_URL) &&
+    !isLocalApiBaseUrl(DIRECT_FALLBACK_API_BASE_URL);
+
+  if (shouldTryDirectFallback) {
+    endpoint = `${DIRECT_FALLBACK_API_BASE_URL}${path}`;
+    const fallbackResult = await fetchWithRetry(endpoint, fetchOptions);
+    if (fallbackResult.response) {
+      response = fallbackResult.response;
+      rawText = await response.text();
+      parsedBody = rawText ? safeJsonParse(rawText) : null;
+      networkError = fallbackResult.networkError;
+    }
+  }
 
   if (!response.ok) {
     const endpointMissing =

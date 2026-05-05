@@ -1247,9 +1247,12 @@ app.post("/api/moderation/users/status", requireAuth, requireAdmin, async (req, 
   }
 });
 
-app.post("/api/moderation/users/delete", requireAuth, requireAdmin, async (req, res) => {
+async function deleteModerationUserHandler(req, res) {
   try {
-    const targetUserId = normalizeText(req.body?.targetUserId);
+    const targetUserId =
+      normalizeText(req.body?.targetUserId) ||
+      normalizeText(req.body?.userId) ||
+      normalizeText(req.body?.id);
     const reason = normalizeText(req.body?.reason, "Deleted by admin") || "Deleted by admin";
     console.log(`[ADMIN][DELETE] actor=${req.user?.email || req.user?._id || "unknown"} target=${targetUserId || "none"}`);
 
@@ -1299,7 +1302,10 @@ app.post("/api/moderation/users/delete", requireAuth, requireAdmin, async (req, 
     console.error("[ADMIN][DELETE] failed", error);
     res.status(500).json({ message: error?.message || "Unable to delete user." });
   }
-});
+}
+
+app.post("/api/moderation/users/delete", requireAuth, requireAdmin, deleteModerationUserHandler);
+app.post("/api/admin/users/delete", requireAuth, requireAdmin, deleteModerationUserHandler);
 
 app.get("/api/moderation/reports", requireAuth, requireAdmin, (req, res) => {
   const status = normalizeText(req.query?.status, "all");
@@ -1376,10 +1382,42 @@ app.use((_req, res) => {
   res.status(404).json({ message: "Endpoint not found." });
 });
 
-mongoose
-  .connect(process.env.MONGO_URI)
-  .then(() => console.log("MongoDB Connected"))
-  .catch((err) => console.log(err));
+let mongoConnecting = false;
+
+async function connectMongoWithRetry() {
+  if (mongoConnecting || mongoose.connection.readyState === 1) {
+    return;
+  }
+
+  if (!process.env.MONGO_URI) {
+    console.error("[DB] MONGO_URI missing. Set it in environment variables.");
+    return;
+  }
+
+  mongoConnecting = true;
+  try {
+    await mongoose.connect(process.env.MONGO_URI, {
+      serverSelectionTimeoutMS: 10_000,
+    });
+    console.log("MongoDB Connected");
+  } catch (error) {
+    console.error("[DB] MongoDB connection failed:", error?.message || error);
+    setTimeout(connectMongoWithRetry, 5_000);
+  } finally {
+    mongoConnecting = false;
+  }
+}
+
+mongoose.connection.on("disconnected", () => {
+  console.warn("[DB] MongoDB disconnected. Reconnecting...");
+  setTimeout(connectMongoWithRetry, 2_000);
+});
+
+mongoose.connection.on("error", (error) => {
+  console.error("[DB] MongoDB error:", error?.message || error);
+});
+
+connectMongoWithRetry();
 
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`Server running on port ${PORT}`);

@@ -54,7 +54,29 @@ export const adminService = {
       }
       return { ok: true };
     }
-    return request("/moderation/users/delete", { method: "POST", token, data: payload });
+    try {
+      return await request("/moderation/users/delete", {
+        method: "POST",
+        token,
+        data: {
+          targetUserId: payload?.targetUserId || payload?.userId || payload?.id || "",
+          reason: payload?.reason || "",
+        },
+      });
+    } catch (error) {
+      if (error?.status !== 404) {
+        throw error;
+      }
+
+      return request("/admin/users/delete", {
+        method: "POST",
+        token,
+        data: {
+          targetUserId: payload?.targetUserId || payload?.userId || payload?.id || "",
+          reason: payload?.reason || "",
+        },
+      });
+    }
   },
 
   async getAnalyticsDashboard(token) {

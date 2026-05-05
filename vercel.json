@@ -5,6 +5,14 @@
   "outputDirectory": "dist",
   "routes": [
     {
+      "src": "/api/(.*)",
+      "dest": "https://vibematch-qqou.onrender.com/api/$1"
+    },
+    {
+      "src": "/health",
+      "dest": "https://vibematch-qqou.onrender.com/health"
+    },
+    {
       "handle": "filesystem"
     },
     {

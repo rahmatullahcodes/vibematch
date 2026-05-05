@@ -1,4 +1,4 @@
-const DEFAULT_PROD_API_BASE_URL = "https://vibematch-qqou.onrender.com/api";
+const DEFAULT_PROD_API_BASE_URL = "/api";
 const DEFAULT_DEV_API_BASE_URL = "http://127.0.0.1:10000/api";
 
 function stripTrailingSlash(url) {
@@ -7,6 +7,10 @@ function stripTrailingSlash(url) {
 
 function isLocalhostBaseUrl(url) {
   return /^https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?(?:\/|$)/i.test(url);
+}
+
+function isRenderHostUrl(url) {
+  return /^https?:\/\/[^/]*onrender\.com(?:\/|$)/i.test(String(url || ""));
 }
 
 function ensureApiPath(url) {
@@ -34,6 +38,12 @@ function resolveApiBaseUrl() {
   }
 
   if (import.meta.env.PROD && isLocalhostBaseUrl(fromEnv)) {
+    return DEFAULT_PROD_API_BASE_URL;
+  }
+
+  // In production, route Render URLs through Vercel same-origin proxy to avoid
+  // browser-level cross-origin failures.
+  if (import.meta.env.PROD && isRenderHostUrl(fromEnv)) {
     return DEFAULT_PROD_API_BASE_URL;
   }
 

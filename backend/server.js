@@ -11,7 +11,63 @@ dotenv.config();
 const app = express();
 const PORT = Number(process.env.PORT || 10000);
 
-app.use(cors());
+const DEFAULT_ALLOWED_ORIGINS = [
+  "http://127.0.0.1:5173",
+  "http://localhost:5173",
+  "https://vibematch-eosin.vercel.app",
+  "https://*.vercel.app",
+];
+
+function parseAllowedOrigins(value) {
+  if (typeof value !== "string" || !value.trim()) {
+    return DEFAULT_ALLOWED_ORIGINS;
+  }
+
+  const origins = value
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+
+  return origins.length ? origins : DEFAULT_ALLOWED_ORIGINS;
+}
+
+const allowedOrigins = parseAllowedOrigins(process.env.CORS_ALLOWED_ORIGINS);
+
+function escapeRegex(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function originMatchesPattern(origin, pattern) {
+  if (!pattern.includes("*")) {
+    return origin === pattern;
+  }
+
+  const regex = new RegExp(`^${escapeRegex(pattern).replace(/\\\*/g, "[^.]+")}$`, "i");
+  return regex.test(origin);
+}
+
+const corsOptions = {
+  origin(origin, callback) {
+    if (!origin) {
+      callback(null, true);
+      return;
+    }
+
+    if (allowedOrigins.some((allowedOrigin) => originMatchesPattern(origin, allowedOrigin))) {
+      callback(null, true);
+      return;
+    }
+
+    callback(new Error(`CORS blocked for origin: ${origin}`));
+  },
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+  credentials: true,
+  optionsSuccessStatus: 204,
+};
+
+app.use(cors(corsOptions));
+app.options(/.*/, cors(corsOptions));
 app.use(express.json({ limit: "1mb" }));
 
 app.use((req, res, next) => {
@@ -1376,6 +1432,17 @@ app.get("/api/analytics/dashboard", requireAuth, requireAdmin, async (_req, res)
     },
     generatedAt: new Date().toISOString(),
   });
+});
+
+app.use((error, req, res, next) => {
+  if (typeof error?.message === "string" && error.message.startsWith("CORS blocked for origin:")) {
+    res.status(403).json({
+      message: "Request blocked by CORS policy.",
+      origin: req.headers.origin || "",
+    });
+    return;
+  }
+  next(error);
 });
 
 app.use((_req, res) => {

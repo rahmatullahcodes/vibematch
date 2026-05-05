@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, NavLink, Navigate, Outlet, useLocation } from "react-router-dom";
 import { useAdminPanel } from "../../hooks/useAdminPanel";
 import { useAuth } from "../../hooks/useAuth";
@@ -20,6 +20,7 @@ function mobileNavClass({ isActive }) {
 
 function AdminShell() {
   const location = useLocation();
+  const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
   const { user, token, booting, error: authError, isAuthenticated, logout } = useAuth();
   const isAdmin = user?.role === "admin";
 
@@ -70,6 +71,10 @@ function AdminShell() {
       refreshAnalytics({ background: true }),
     ]);
   }, [refreshAnalytics, refreshAudit, refreshReports, refreshUsers, userSearchQuery, userStatusFilter]);
+
+  useEffect(() => {
+    setIsMobileNavOpen(false);
+  }, [location.pathname]);
 
   const contextValue = useMemo(
     () => ({
@@ -250,6 +255,15 @@ function AdminShell() {
 
               <div className="flex flex-wrap items-center gap-2 sm:gap-3">
                 <button
+                  type="button"
+                  onClick={() => setIsMobileNavOpen((previous) => !previous)}
+                  className="rounded-xl border border-white/20 bg-white/10 px-3 py-2 text-xs font-semibold text-white transition hover:bg-white/20 lg:hidden"
+                  aria-expanded={isMobileNavOpen}
+                  aria-label="Toggle admin navigation"
+                >
+                  {isMobileNavOpen ? "Close Menu" : "Open Menu"}
+                </button>
+                <button
                   onClick={refreshAll}
                   className="rounded-xl border border-white/20 bg-white/10 px-3 py-2 text-xs font-semibold text-white transition hover:bg-white/15"
                 >
@@ -268,6 +282,67 @@ function AdminShell() {
           <Outlet context={contextValue} />
         </main>
       </div>
+
+      {isMobileNavOpen && (
+        <div
+          className="fixed inset-0 z-30 bg-slate-950/75 backdrop-blur-sm lg:hidden"
+          onClick={() => setIsMobileNavOpen(false)}
+          role="presentation"
+        >
+          <aside
+            className="glass-strong absolute inset-x-3 top-3 max-h-[82vh] overflow-y-auto rounded-3xl p-4"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <div>
+                <p className="font-heading text-lg text-white">Admin Menu</p>
+                <p className="text-xs text-slate-300">{user?.name || "Admin"}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsMobileNavOpen(false)}
+                className="rounded-xl border border-white/20 bg-white/10 px-3 py-2 text-xs font-semibold text-white transition hover:bg-white/20"
+              >
+                Close
+              </button>
+            </div>
+
+            <nav className="space-y-2">
+              {adminNavItems.map((item) => (
+                <NavLink
+                  key={item.path}
+                  to={item.path}
+                  end={item.path === "/admin"}
+                  className={navClass}
+                  onClick={() => setIsMobileNavOpen(false)}
+                >
+                  <span className="h-2 w-2 rounded-full bg-aqua/80" />
+                  <span>{item.label}</span>
+                </NavLink>
+              ))}
+            </nav>
+
+            <div className="mt-4 grid gap-2 sm:grid-cols-2">
+              <Link
+                to="/app?tab=dashboard"
+                onClick={() => setIsMobileNavOpen(false)}
+                className="block w-full rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-center text-sm font-semibold text-white transition hover:bg-white/15"
+              >
+                Open User App
+              </Link>
+              <button
+                onClick={() => {
+                  logout();
+                  setIsMobileNavOpen(false);
+                }}
+                className="w-full rounded-xl bg-gradient-to-r from-coral to-ember px-4 py-2 text-sm font-semibold text-white shadow-glow transition hover:brightness-110"
+              >
+                Logout Admin
+              </button>
+            </div>
+          </aside>
+        </div>
+      )}
 
       <nav className="glass fixed inset-x-2 bottom-2 z-20 mx-auto overflow-x-auto rounded-2xl px-2 py-2 scrollbar-hidden sm:inset-x-4 sm:bottom-4 sm:px-3 lg:hidden">
         <div className="flex min-w-max items-center gap-2">

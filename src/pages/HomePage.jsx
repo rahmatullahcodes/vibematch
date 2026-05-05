@@ -98,31 +98,31 @@ function HomePage() {
             <div className="mt-6 grid gap-3 sm:flex sm:flex-wrap">
               <Link
                 to="/app"
-                className="rounded-2xl bg-gradient-to-r from-coral to-ember px-6 py-3 text-center text-sm font-semibold text-white shadow-glow"
+                className="w-full rounded-2xl bg-gradient-to-r from-coral to-ember px-6 py-3 text-center text-sm font-semibold text-white shadow-glow sm:w-auto"
               >
                 Launch App
               </Link>
               <Link
                 to="/admin/login"
-                className="rounded-2xl border border-aqua/45 bg-aqua/15 px-6 py-3 text-center text-sm font-semibold text-aqua transition hover:bg-aqua/25"
+                className="w-full rounded-2xl border border-aqua/45 bg-aqua/15 px-6 py-3 text-center text-sm font-semibold text-aqua transition hover:bg-aqua/25 sm:w-auto"
               >
                 Admin Login
               </Link>
               <Link
                 to="/app?tab=auth"
-                className="rounded-2xl border border-aqua/45 bg-aqua/15 px-6 py-3 text-center text-sm font-semibold text-aqua transition hover:bg-aqua/25"
+                className="w-full rounded-2xl border border-aqua/45 bg-aqua/15 px-6 py-3 text-center text-sm font-semibold text-aqua transition hover:bg-aqua/25 sm:w-auto"
               >
                 Login / Sign Up
               </Link>
               <Link
                 to="/features"
-                className="rounded-2xl border border-white/20 bg-white/10 px-6 py-3 text-center text-sm font-semibold text-white transition hover:bg-white/15"
+                className="w-full rounded-2xl border border-white/20 bg-white/10 px-6 py-3 text-center text-sm font-semibold text-white transition hover:bg-white/15 sm:w-auto"
               >
                 Explore Platform
               </Link>
               <Link
                 to="/contact"
-                className="rounded-2xl border border-white/20 bg-transparent px-6 py-3 text-center text-sm font-semibold text-slate-100 transition hover:bg-white/10"
+                className="w-full rounded-2xl border border-white/20 bg-transparent px-6 py-3 text-center text-sm font-semibold text-slate-100 transition hover:bg-white/10 sm:w-auto"
               >
                 Talk to Team
               </Link>
@@ -151,7 +151,7 @@ function HomePage() {
               <p className="mt-1 font-heading text-lg text-white sm:text-2xl">92% Compatibility</p>
             </div>
 
-            <div className="absolute right-3 top-3 rounded-xl border border-white/20 bg-slate-950/55 px-3 py-2 text-right backdrop-blur sm:right-4 sm:top-4">
+            <div className="absolute right-3 top-3 hidden rounded-xl border border-white/20 bg-slate-950/55 px-3 py-2 text-right backdrop-blur sm:right-4 sm:top-4 sm:block">
               <p className="text-[10px] uppercase tracking-[0.16em] text-slate-300">City Momentum</p>
               <p className="mt-1 font-heading text-base text-aqua sm:text-xl">+38% Active Tonight</p>
             </div>
@@ -164,7 +164,7 @@ function HomePage() {
                   Curated social event for high-intent conversations and quality introductions.
                 </p>
 
-                <div className="mt-3 grid grid-cols-2 gap-3 text-center">
+                <div className="mt-3 grid grid-cols-1 gap-3 text-center sm:grid-cols-2">
                   <div className="surface-soft rounded-xl p-2">
                     <p className="font-heading text-xl text-aqua">1.2k</p>
                     <p className="text-[11px] text-slate-300">Profiles online</p>

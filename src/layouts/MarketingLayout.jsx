@@ -1,13 +1,21 @@
-import { Link, NavLink, Outlet } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 import { legalLinks, siteLinks } from "../content/siteContent";
 
 function navLinkClass({ isActive }) {
-  return `rounded-xl px-3 py-2 text-sm font-medium transition ${
+  return `block rounded-xl px-3 py-2 text-sm font-medium transition ${
     isActive ? "bg-white/12 text-white" : "text-slate-300 hover:bg-white/8 hover:text-white"
   }`;
 }
 
 function MarketingLayout() {
+  const location = useLocation();
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
+  useEffect(() => {
+    setIsMobileMenuOpen(false);
+  }, [location.pathname]);
+
   return (
     <div className="mesh-bg min-h-screen h-dvh overflow-hidden bg-slateDeep font-body text-slate-100">
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
@@ -18,18 +26,30 @@ function MarketingLayout() {
 
       <div className="relative mx-auto flex h-full min-h-0 w-full max-w-[1320px] flex-col px-4 pt-4 sm:pt-5 lg:px-8">
         <header className="glass-strong sticky top-3 z-30 mb-6 rounded-2xl px-4 py-3 md:top-4 md:px-5">
-          <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+          <div className="flex items-center justify-between gap-3">
             <Link to="/" className="flex items-center gap-3">
               <span className="grid h-10 w-10 place-items-center rounded-xl bg-gradient-to-br from-coral to-ember font-heading text-lg font-bold text-white">
                 S
               </span>
-              <span>
+              <span className="min-w-0">
                 <span className="block font-heading text-xl font-semibold leading-none text-white">Spark Social</span>
                 <span className="mt-1 block text-xs text-slate-300">Dating and social ecosystem</span>
               </span>
             </Link>
 
-            <nav className="scrollbar-hidden flex w-full gap-1 overflow-x-auto whitespace-nowrap pb-1 xl:w-auto xl:justify-center xl:pb-0">
+            <button
+              type="button"
+              onClick={() => setIsMobileMenuOpen((previous) => !previous)}
+              className="inline-flex items-center gap-2 rounded-xl border border-white/20 bg-white/10 px-3 py-2 text-xs font-semibold text-white transition hover:bg-white/20 lg:hidden"
+              aria-expanded={isMobileMenuOpen}
+              aria-label="Toggle navigation menu"
+            >
+              Menu
+            </button>
+          </div>
+
+          <div className="mt-3 hidden items-center justify-between gap-4 lg:flex">
+            <nav className="scrollbar-hidden flex gap-1 overflow-x-auto whitespace-nowrap pb-1 lg:pb-0">
               {siteLinks.map((link) => (
                 <NavLink key={link.path} to={link.path} className={navLinkClass}>
                   {link.label}
@@ -37,10 +57,10 @@ function MarketingLayout() {
               ))}
             </nav>
 
-            <div className="grid w-full grid-cols-3 gap-2 sm:flex sm:w-auto sm:justify-end">
+            <div className="flex flex-wrap justify-end gap-2">
               <Link
                 to="/admin/login"
-                className="rounded-xl border border-aqua/35 bg-aqua/15 px-3 py-2 text-center text-[11px] font-semibold text-aqua transition hover:bg-aqua/25 md:px-4 md:text-sm"
+                className="rounded-xl border border-aqua/35 bg-aqua/15 px-3 py-2 text-center text-xs font-semibold text-aqua transition hover:bg-aqua/25 md:px-4 md:text-sm"
               >
                 Admin Login
               </Link>
@@ -58,6 +78,39 @@ function MarketingLayout() {
               </Link>
             </div>
           </div>
+
+          {isMobileMenuOpen && (
+            <div className="mt-3 space-y-3 rounded-2xl border border-white/15 bg-black/20 p-3 lg:hidden">
+              <nav className="grid gap-1">
+                {siteLinks.map((link) => (
+                  <NavLink key={link.path} to={link.path} className={navLinkClass}>
+                    {link.label}
+                  </NavLink>
+                ))}
+              </nav>
+
+              <div className="grid gap-2 sm:grid-cols-3">
+                <Link
+                  to="/admin/login"
+                  className="rounded-xl border border-aqua/35 bg-aqua/15 px-3 py-2 text-center text-xs font-semibold text-aqua transition hover:bg-aqua/25"
+                >
+                  Admin Login
+                </Link>
+                <Link
+                  to="/app?tab=auth"
+                  className="rounded-xl bg-gradient-to-r from-coral to-ember px-4 py-2 text-center text-xs font-semibold text-white shadow-glow transition hover:brightness-110"
+                >
+                  Login / Sign Up
+                </Link>
+                <Link
+                  to="/app"
+                  className="rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-center text-xs font-semibold text-white transition hover:bg-white/20"
+                >
+                  Open App
+                </Link>
+              </div>
+            </div>
+          )}
         </header>
 
         <div className="scrollbar-hidden flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-y-contain pb-6">

@@ -139,6 +139,7 @@ function AppWorkspacePage() {
   const requestedTab = searchParams.get("tab");
   const requestedMode = searchParams.get("mode");
   const [activeView, setActiveView] = useState("discover");
+  const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
 
   const {
     user,
@@ -327,6 +328,10 @@ function AppWorkspacePage() {
     });
   }, [availableNavItems, requestedTab, resolvedRequestedView]);
 
+  useEffect(() => {
+    setIsMobileNavOpen(false);
+  }, [activeView]);
+
   const handleSwipeAction = useCallback(
     async (action) => {
       const response = await sendAction(action);
@@ -483,6 +488,15 @@ function AppWorkspacePage() {
               </div>
 
               <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+                <button
+                  type="button"
+                  onClick={() => setIsMobileNavOpen((previous) => !previous)}
+                  className="rounded-xl border border-white/20 bg-white/10 px-3 py-2 text-xs font-semibold text-white transition hover:bg-white/20 lg:hidden"
+                  aria-expanded={isMobileNavOpen}
+                  aria-label="Toggle workspace navigation"
+                >
+                  {isMobileNavOpen ? "Close Menu" : "Open Menu"}
+                </button>
                 {activeView === "discover" && (
                   <button
                     onClick={refreshFeed}
@@ -828,6 +842,96 @@ function AppWorkspacePage() {
           </div>
         </main>
       </div>
+
+      {isMobileNavOpen && (
+        <div
+          className="fixed inset-0 z-30 bg-slate-950/75 backdrop-blur-sm lg:hidden"
+          onClick={() => setIsMobileNavOpen(false)}
+          role="presentation"
+        >
+          <aside
+            className="glass-strong absolute inset-x-3 top-3 max-h-[82vh] overflow-y-auto rounded-3xl p-4"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <div>
+                <p className="font-heading text-lg text-white">Workspace Menu</p>
+                <p className="text-xs text-slate-300">{isAuthenticated ? `Signed in as ${user?.name}` : "Guest mode enabled"}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsMobileNavOpen(false)}
+                className="rounded-xl border border-white/20 bg-white/10 px-3 py-2 text-xs font-semibold text-white transition hover:bg-white/20"
+              >
+                Close
+              </button>
+            </div>
+
+            <nav className="space-y-2">
+              {availableNavItems.map((item) => {
+                const isActive = activeView === item.key;
+                return (
+                  <button
+                    key={item.key}
+                    onClick={() => {
+                      setActiveView(item.key);
+                      setIsMobileNavOpen(false);
+                    }}
+                    className={`group flex w-full items-center gap-3 rounded-2xl border px-4 py-3 text-left transition ${
+                      isActive
+                        ? "border-white/20 bg-white/12 text-white shadow-lg shadow-black/20"
+                        : "border-transparent text-slate-300 hover:border-white/10 hover:bg-white/8 hover:text-white"
+                    }`}
+                  >
+                    <span className={`${isActive ? "text-coral" : "text-slate-400 group-hover:text-coral"}`}>
+                      <Icon path={item.icon} />
+                    </span>
+                    <span className="text-sm font-medium">{item.label}</span>
+                    {item.key === "notifications" && unreadCount > 0 && (
+                      <span className="ml-auto rounded-full border border-coral/30 bg-coral/20 px-2 py-0.5 text-[11px] font-semibold text-white">
+                        {unreadCount}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </nav>
+
+            <div className="mt-4 grid gap-2 sm:grid-cols-2">
+              <button
+                onClick={() => {
+                  openAuthView(isAuthenticated ? "login" : "signup");
+                  setIsMobileNavOpen(false);
+                }}
+                className="w-full rounded-xl bg-white px-4 py-2 text-sm font-semibold text-slate-900 transition hover:bg-slate-200"
+              >
+                {isAuthenticated ? "Manage Account" : "Login / Sign Up"}
+              </button>
+              {isAuthenticated ? (
+                <button
+                  onClick={() => {
+                    logout();
+                    setIsMobileNavOpen(false);
+                  }}
+                  className="w-full rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-semibold text-white transition hover:bg-white/20"
+                >
+                  Logout
+                </button>
+              ) : (
+                <button
+                  onClick={() => {
+                    openAdminLogin();
+                    setIsMobileNavOpen(false);
+                  }}
+                  className="w-full rounded-xl border border-aqua/30 bg-aqua/15 px-4 py-2 text-sm font-semibold text-aqua transition hover:bg-aqua/25"
+                >
+                  Admin Login
+                </button>
+              )}
+            </div>
+          </aside>
+        </div>
+      )}
 
       <nav className="glass fixed inset-x-2 bottom-2 z-20 mx-auto overflow-x-auto rounded-2xl px-2 py-2 scrollbar-hidden sm:inset-x-4 sm:bottom-4 sm:px-3 lg:hidden">
         <div className="flex min-w-max items-center gap-2">

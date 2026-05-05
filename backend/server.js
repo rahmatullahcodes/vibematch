@@ -118,7 +118,11 @@ const ACCESS_TOKEN_TTL_MS = 15 * 60 * 1000;
 const REFRESH_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const WS_OPEN_STATE = 1;
 const wsClientsByUserId = new Map();
-const wsServer = new WebSocketServer({ noServer: true, path: WS_PATH });
+const wsServer = new WebSocketServer({
+  noServer: true,
+  path: WS_PATH,
+  maxPayload: 64 * 1024,
+});
 const refreshTokenStore = new Map();
 const rateLimitStore = new Map();
 const RATE_LIMIT_RULES = [
@@ -151,18 +155,111 @@ const RATE_LIMIT_RULES = [
   },
 ];
 
-function setCors(response) {
-  response.setHeader("Access-Control-Allow-Origin", "*");
-  response.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
-  response.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+const DEFAULT_ALLOWED_ORIGINS = [
+  "http://localhost:5173",
+  "http://127.0.0.1:5173",
+  "http://localhost:4173",
+  "http://127.0.0.1:4173",
+];
+const HTTP_ALLOWED_ORIGINS = parseOriginAllowlist(process.env.CORS_ALLOWED_ORIGINS, DEFAULT_ALLOWED_ORIGINS);
+const WS_ALLOWED_ORIGINS = parseOriginAllowlist(
+  process.env.WS_ALLOWED_ORIGINS || process.env.CORS_ALLOWED_ORIGINS,
+  DEFAULT_ALLOWED_ORIGINS,
+);
+const MAX_JSON_BODY_BYTES = normalizePositiveInt(process.env.MAX_JSON_BODY_BYTES, 256 * 1024);
+const MAX_JSON_DEPTH = normalizePositiveInt(process.env.MAX_JSON_DEPTH, 12);
+const MAX_JSON_ARRAY_ITEMS = normalizePositiveInt(process.env.MAX_JSON_ARRAY_ITEMS, 600);
+const MAX_JSON_TOTAL_KEYS = normalizePositiveInt(process.env.MAX_JSON_TOTAL_KEYS, 4000);
+const SECURITY_AUDIT_MAX_ENTRIES = normalizePositiveInt(process.env.SECURITY_AUDIT_MAX_ENTRIES, 3000);
+const FORBIDDEN_JSON_KEYS = new Set(["__proto__", "prototype", "constructor"]);
+const SUSPICIOUS_TEXT_PATTERNS = [
+  /<\s*script\b/i,
+  /<\s*iframe\b/i,
+  /javascript\s*:/i,
+  /data\s*:\s*text\/html/i,
+  /<[^>]*\son[a-z]+\s*=/i,
+  /%3c\s*script/i,
+  /\x00/,
+];
+const SUSPICIOUS_SCAN_SKIP_KEYS = new Set(["password", "refreshToken", "signature", "razorpay_signature"]);
+const MODERATION_REPORT_STATUS_VALUES = new Set(["all", "open", "under_review", "resolved", "dismissed"]);
+const MODERATION_USER_STATUS_VALUES = new Set(["all", "active", "suspended", "banned"]);
+const MODERATION_REPORT_ACTION_VALUES = new Set(["dismiss", "review", "warn", "suspend", "ban"]);
+const MODERATION_USER_ACTION_VALUES = new Set(["activate", "suspend", "ban"]);
+const securityAuditEntries = [];
+
+function normalizePositiveInt(value, fallback) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return fallback;
+  }
+  return Math.round(parsed);
 }
 
-function setSecurityHeaders(response) {
+function normalizeOrigin(value) {
+  if (typeof value !== "string" || !value.trim()) {
+    return "";
+  }
+  try {
+    return new URL(value).origin.toLowerCase();
+  } catch {
+    return "";
+  }
+}
+
+function parseOriginAllowlist(rawValue, fallback = []) {
+  const fallbackOrigins = fallback.map((item) => normalizeOrigin(item)).filter(Boolean);
+  if (typeof rawValue !== "string" || !rawValue.trim()) {
+    return new Set(fallbackOrigins);
+  }
+
+  const parsedOrigins = rawValue
+    .split(",")
+    .map((item) => normalizeOrigin(item))
+    .filter(Boolean);
+  return new Set(parsedOrigins.length ? parsedOrigins : fallbackOrigins);
+}
+
+function isOriginAllowed(origin, allowlist) {
+  if (!origin) {
+    return true;
+  }
+  return allowlist.has(origin);
+}
+
+function setCors(request, response) {
+  const requestOrigin = normalizeOrigin(request.headers.origin);
+  const originAllowed = isOriginAllowed(requestOrigin, HTTP_ALLOWED_ORIGINS);
+
+  response.setHeader("Vary", "Origin");
+  response.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+  response.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  response.setHeader("Access-Control-Max-Age", "600");
+  if (requestOrigin && originAllowed) {
+    response.setHeader("Access-Control-Allow-Origin", requestOrigin);
+  }
+
+  return {
+    originAllowed,
+    requestOrigin,
+  };
+}
+
+function setSecurityHeaders(request, response) {
   response.setHeader("X-Content-Type-Options", "nosniff");
   response.setHeader("X-Frame-Options", "DENY");
+  response.setHeader("X-DNS-Prefetch-Control", "off");
   response.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
   response.setHeader("Permissions-Policy", "geolocation=(), microphone=(), camera=()");
   response.setHeader("Cross-Origin-Resource-Policy", "same-site");
+  response.setHeader("Cross-Origin-Opener-Policy", "same-origin");
+  response.setHeader("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'");
+
+  const forwardedProtoRaw = request.headers["x-forwarded-proto"];
+  const forwardedProto = typeof forwardedProtoRaw === "string" ? forwardedProtoRaw.split(",")[0].trim().toLowerCase() : "";
+  if (forwardedProto === "https") {
+    response.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+  }
 }
 
 function sendJson(response, status, payload) {
@@ -219,6 +316,74 @@ function getClientIp(request) {
     return forwarded.split(",")[0].trim();
   }
   return request.socket?.remoteAddress || "unknown";
+}
+
+function sanitizeLogString(value, maxLength = 240) {
+  if (typeof value !== "string") {
+    return "";
+  }
+  const clean = value.replace(/[\r\n\t]/g, " ").trim();
+  if (!clean) {
+    return "";
+  }
+  return clean.length > maxLength ? `${clean.slice(0, maxLength)}...` : clean;
+}
+
+function hashAuditIp(ip) {
+  const normalizedIp = sanitizeLogString(ip, 80) || "unknown";
+  return crypto.createHash("sha256").update(`${ACCESS_TOKEN_SECRET}|${normalizedIp}`).digest("hex").slice(0, 24);
+}
+
+function sanitizeAuditMeta(value, depth = 0) {
+  if (depth > 2) {
+    return "[truncated]";
+  }
+  if (value === null || value === undefined) {
+    return null;
+  }
+  if (typeof value === "string") {
+    return sanitizeLogString(value, 240);
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value.slice(0, 20).map((item) => sanitizeAuditMeta(item, depth + 1));
+  }
+  if (typeof value === "object") {
+    const safeObject = {};
+    for (const [key, nestedValue] of Object.entries(value).slice(0, 25)) {
+      safeObject[sanitizeLogString(key, 60) || "key"] = sanitizeAuditMeta(nestedValue, depth + 1);
+    }
+    return safeObject;
+  }
+  return String(value);
+}
+
+function pushSecurityAuditEvent(event) {
+  securityAuditEntries.push(event);
+  if (securityAuditEntries.length > SECURITY_AUDIT_MAX_ENTRIES) {
+    securityAuditEntries.splice(0, securityAuditEntries.length - SECURITY_AUDIT_MAX_ENTRIES);
+  }
+}
+
+function logSecurityEvent(request, eventType, severity = "info", details = {}) {
+  const requestUrl = new URL(request.url || "/", `http://${request.headers.host || "localhost"}`);
+  const tokenUserId = parseUserIdFromToken(getToken(request));
+  const eventPayload = {
+    at: new Date().toISOString(),
+    type: sanitizeLogString(eventType, 80) || "security_event",
+    severity: sanitizeLogString(severity, 20) || "info",
+    method: sanitizeLogString(request.method || "GET", 10),
+    path: sanitizeLogString(requestUrl.pathname, 180),
+    ipHash: hashAuditIp(getClientIp(request)),
+    origin: normalizeOrigin(request.headers.origin) || "none",
+    userId: sanitizeLogString(tokenUserId, 100) || "anonymous",
+    details: sanitizeAuditMeta(details),
+  };
+
+  pushSecurityAuditEvent(eventPayload);
+  console.log(`[SECURITY_AUDIT] ${JSON.stringify(eventPayload)}`);
 }
 
 function createAccessToken(userId) {
@@ -436,45 +601,170 @@ function enforceRateLimit(request, pathname) {
   rateLimitStore.set(key, current);
 }
 
-function ensureTrimmedString(value, fieldName, maxLength = 300) {
+function containsSuspiciousText(value) {
+  if (typeof value !== "string" || !value) {
+    return false;
+  }
+  return SUSPICIOUS_TEXT_PATTERNS.some((pattern) => pattern.test(value));
+}
+
+function ensureTrimmedString(value, fieldName, maxLength = 300, options = {}) {
+  const { allowSuspicious = false, required = false } = options;
   if (typeof value !== "string") {
+    if (required) {
+      throw new Error(`${fieldName} is required.`);
+    }
     return "";
   }
   const trimmed = value.trim();
+  if (required && !trimmed) {
+    throw new Error(`${fieldName} is required.`);
+  }
   if (trimmed.length > maxLength) {
     throw new Error(`${fieldName} is too long.`);
+  }
+  if (!allowSuspicious && trimmed && containsSuspiciousText(trimmed)) {
+    throw new Error(`${fieldName} contains suspicious content.`);
   }
   return trimmed;
 }
 
+function ensureValidEmail(value, fieldName = "email") {
+  const normalized = ensureTrimmedString(value, fieldName, 160, { required: true }).toLowerCase();
+  const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailPattern.test(normalized)) {
+    throw new Error("Invalid email format.");
+  }
+  return normalized;
+}
+
+function ensureSafeHttpUrl(value, fieldName = "url", maxLength = 500) {
+  const trimmed = ensureTrimmedString(value, fieldName, maxLength);
+  if (!trimmed) {
+    return "";
+  }
+
+  let parsedUrl;
+  try {
+    parsedUrl = new URL(trimmed);
+  } catch {
+    throw new Error(`${fieldName} must be a valid URL.`);
+  }
+
+  if (!["http:", "https:"].includes(parsedUrl.protocol)) {
+    throw new Error(`${fieldName} protocol is not allowed.`);
+  }
+  if (parsedUrl.username || parsedUrl.password) {
+    throw new Error(`${fieldName} cannot include credentials.`);
+  }
+  if (containsSuspiciousText(parsedUrl.href)) {
+    throw new Error(`${fieldName} contains suspicious content.`);
+  }
+
+  return parsedUrl.href;
+}
+
+function validatePayloadTextSafety(value, path = "payload", keyHint = "") {
+  if (value === null || value === undefined) {
+    return;
+  }
+
+  if (typeof value === "string") {
+    if (SUSPICIOUS_SCAN_SKIP_KEYS.has(keyHint)) {
+      return;
+    }
+    if (containsSuspiciousText(value)) {
+      throw new Error(`${path} contains suspicious content.`);
+    }
+    return;
+  }
+
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => validatePayloadTextSafety(item, `${path}[${index}]`, keyHint));
+    return;
+  }
+
+  if (typeof value === "object") {
+    Object.entries(value).forEach(([key, nestedValue]) => {
+      validatePayloadTextSafety(nestedValue, `${path}.${key}`, key);
+    });
+  }
+}
+
+function ensureEnumString(value, fieldName, allowedValues, maxLength = 40, required = false) {
+  const normalized = ensureTrimmedString(value, fieldName, maxLength, { required }).toLowerCase();
+  if (!normalized) {
+    return "";
+  }
+  if (!allowedValues.has(normalized)) {
+    throw new Error(`Invalid ${fieldName}.`);
+  }
+  return normalized;
+}
+
+function ensureBoundedInteger(value, fieldName, min, max, fallbackValue = min) {
+  if (value === undefined || value === null || value === "") {
+    return fallbackValue;
+  }
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < min || parsed > max) {
+    throw new Error(`${fieldName} must be between ${min} and ${max}.`);
+  }
+  return parsed;
+}
+
+function validateQueryForRoute(pathname, searchParams) {
+  if (pathname === `${API_PREFIX}/moderation/reports`) {
+    ensureEnumString(searchParams.get("status") || "all", "status", MODERATION_REPORT_STATUS_VALUES, 24, true);
+  }
+
+  if (pathname === `${API_PREFIX}/moderation/users`) {
+    ensureEnumString(searchParams.get("status") || "all", "status", MODERATION_USER_STATUS_VALUES, 24, true);
+    ensureTrimmedString(searchParams.get("query") || "", "query", 120);
+  }
+
+  if (pathname === `${API_PREFIX}/security/audit`) {
+    ensureBoundedInteger(searchParams.get("limit"), "limit", 1, 500, 200);
+  }
+}
+
 function validatePayloadForRoute(pathname, body = {}) {
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    throw new Error("Payload must be a JSON object.");
+  }
+  validatePayloadTextSafety(body);
+
   if (pathname === `${API_PREFIX}/chat/messages`) {
-    const text = ensureTrimmedString(body.text, "text", 1500);
+    const text = ensureTrimmedString(body.text, "text", 1500, { required: true });
     if (!text) {
       throw new Error("Message cannot be empty.");
     }
   }
 
   if (pathname === `${API_PREFIX}/auth/register`) {
-    ensureTrimmedString(body.name, "name", 80);
-    ensureTrimmedString(body.email, "email", 160);
-    ensureTrimmedString(body.password, "password", 120);
+    ensureTrimmedString(body.name, "name", 80, { required: true });
+    ensureValidEmail(body.email, "email");
+    const password = ensureTrimmedString(body.password, "password", 120, { required: true, allowSuspicious: true });
+    if (password.length < 6) {
+      throw new Error("Password must be at least 6 characters.");
+    }
+    ensureSafeHttpUrl(body.avatar, "avatar", 500);
   }
 
   if (pathname === `${API_PREFIX}/auth/login`) {
-    ensureTrimmedString(body.email, "email", 160);
-    ensureTrimmedString(body.password, "password", 120);
+    ensureValidEmail(body.email, "email");
+    ensureTrimmedString(body.password, "password", 120, { required: true, allowSuspicious: true });
   }
 
   if (pathname === `${API_PREFIX}/auth/profile`) {
     ensureTrimmedString(body.name, "name", 80);
     ensureTrimmedString(body.city, "city", 80);
     ensureTrimmedString(body.bio, "bio", 600);
-    ensureTrimmedString(body.avatar, "avatar", 500);
+    ensureSafeHttpUrl(body.avatar, "avatar", 500);
   }
 
   if (pathname === `${API_PREFIX}/discover/post-comment` || pathname === `${API_PREFIX}/discover/reel-comment`) {
-    const text = ensureTrimmedString(body.text, "text", 280);
+    const text = ensureTrimmedString(body.text, "text", 280, { required: true });
     if (!text) {
       throw new Error("Comment cannot be empty.");
     }
@@ -501,6 +791,24 @@ function validatePayloadForRoute(pathname, body = {}) {
     ensureTrimmedString(body.sessionId, "sessionId", 120);
     ensureTrimmedString(body.toUserId, "toUserId", 120);
     ensureTrimmedString(body.signalType, "signalType", 24);
+  }
+
+  if (pathname === `${API_PREFIX}/moderation/reports/resolve`) {
+    ensureTrimmedString(body.reportId, "reportId", 120, { required: true });
+    ensureEnumString(body.action, "action", MODERATION_REPORT_ACTION_VALUES, 24, true);
+    ensureTrimmedString(body.note, "note", 400);
+    if (body.suspendHours !== undefined && body.suspendHours !== null) {
+      const suspendHours = Number(body.suspendHours);
+      if (!Number.isInteger(suspendHours) || suspendHours < 1 || suspendHours > 24 * 30) {
+        throw new Error("suspendHours must be an integer between 1 and 720.");
+      }
+    }
+  }
+
+  if (pathname === `${API_PREFIX}/moderation/users/status`) {
+    ensureTrimmedString(body.targetUserId, "targetUserId", 120, { required: true });
+    ensureEnumString(body.action, "action", MODERATION_USER_ACTION_VALUES, 24, true);
+    ensureTrimmedString(body.reason, "reason", 300);
   }
 }
 
@@ -769,26 +1077,117 @@ function broadcastCallSignalEvent({ fromUserId, toUserId, sessionId, signalType,
   });
 }
 
+function isApiJsonRequest(method, pathname) {
+  return method === "POST" && pathname.startsWith(API_PREFIX);
+}
+
+function enforceJsonRequestContentType(request, method, pathname) {
+  if (!isApiJsonRequest(method, pathname)) {
+    return;
+  }
+
+  const contentLengthHeader = request.headers["content-length"];
+  const contentLength = Number(contentLengthHeader);
+  const hasTransferEncoding = Boolean(request.headers["transfer-encoding"]);
+  const hasBody = (Number.isFinite(contentLength) && contentLength > 0) || hasTransferEncoding;
+  if (!hasBody) {
+    return;
+  }
+
+  const contentType = request.headers["content-type"];
+  if (typeof contentType !== "string" || !contentType.toLowerCase().includes("application/json")) {
+    throw new Error("Unsupported content type. Use application/json.");
+  }
+}
+
+function validateJsonPayloadShape(value, depth = 0, state = { totalKeys: 0 }) {
+  if (depth > MAX_JSON_DEPTH) {
+    throw new Error("JSON payload is too deeply nested.");
+  }
+  if (value === null) {
+    return;
+  }
+
+  const valueType = typeof value;
+  if (valueType === "string" || valueType === "boolean") {
+    return;
+  }
+  if (valueType === "number") {
+    if (!Number.isFinite(value)) {
+      throw new Error("JSON payload contains invalid numeric values.");
+    }
+    return;
+  }
+  if (Array.isArray(value)) {
+    if (value.length > MAX_JSON_ARRAY_ITEMS) {
+      throw new Error("JSON array is too large.");
+    }
+    for (const item of value) {
+      validateJsonPayloadShape(item, depth + 1, state);
+    }
+    return;
+  }
+  if (valueType !== "object") {
+    throw new Error("JSON payload contains unsupported value types.");
+  }
+
+  const keys = Object.keys(value);
+  state.totalKeys += keys.length;
+  if (state.totalKeys > MAX_JSON_TOTAL_KEYS) {
+    throw new Error("JSON payload contains too many keys.");
+  }
+
+  for (const key of keys) {
+    if (FORBIDDEN_JSON_KEYS.has(key)) {
+      throw new Error("Payload contains forbidden object keys.");
+    }
+    if (key.length > 120) {
+      throw new Error("Payload key is too long.");
+    }
+    validateJsonPayloadShape(value[key], depth + 1, state);
+  }
+}
+
 function readJsonBody(request) {
   return new Promise((resolve, reject) => {
-    let raw = "";
+    const chunks = [];
+    let totalBytes = 0;
+    let ended = false;
 
     request.on("data", (chunk) => {
-      raw += chunk;
-      if (raw.length > 1_000_000) {
-        reject(new Error("Payload too large"));
+      if (ended) {
+        return;
       }
+      totalBytes += chunk.length;
+      if (totalBytes > MAX_JSON_BODY_BYTES) {
+        ended = true;
+        reject(new Error("Payload too large"));
+        request.destroy();
+        return;
+      }
+      chunks.push(chunk);
     });
 
     request.on("end", () => {
+      if (ended) {
+        return;
+      }
+
+      const raw = Buffer.concat(chunks).toString("utf-8");
       if (!raw) {
         resolve({});
         return;
       }
       try {
-        resolve(JSON.parse(raw));
-      } catch {
-        reject(new Error("Invalid JSON payload"));
+        const parsed = JSON.parse(raw);
+        validateJsonPayloadShape(parsed);
+        resolve(parsed);
+      } catch (error) {
+        if (error instanceof SyntaxError) {
+          reject(new Error("Invalid JSON payload"));
+          return;
+        }
+        reject(error instanceof Error ? error : new Error("Invalid JSON payload"));
       }
     });
 
@@ -799,6 +1198,15 @@ function readJsonBody(request) {
 function resolveStatusFromMessage(message) {
   if (!message) {
     return 500;
+  }
+  if (message.includes("Origin not allowed") || message.includes("WebSocket origin not allowed")) {
+    return 403;
+  }
+  if (message.includes("Unsupported content type")) {
+    return 415;
+  }
+  if (message.includes("Payload too large")) {
+    return 413;
   }
   if (message.includes("Admin access required")) {
     return 403;
@@ -830,7 +1238,30 @@ function resolveStatusFromMessage(message) {
   if (message.includes("cannot be empty")) {
     return 400;
   }
+  if (message.startsWith("Invalid ") || message.includes(" must be between ")) {
+    return 400;
+  }
+  if (
+    message.includes("suspicious content") ||
+    message.includes("Invalid email format") ||
+    message.includes("must be a valid URL") ||
+    message.includes("protocol is not allowed") ||
+    message.includes("cannot include credentials")
+  ) {
+    return 400;
+  }
   if (message.includes("too long")) {
+    return 400;
+  }
+  if (
+    message.includes("Payload must be a JSON object") ||
+    message.includes("forbidden object keys") ||
+    message.includes("too deeply nested") ||
+    message.includes("too many keys") ||
+    message.includes("array is too large") ||
+    message.includes("unsupported value types") ||
+    message.includes("invalid numeric values")
+  ) {
     return 400;
   }
   if (message.includes("require checkout") || message.includes("does not require payment")) {
@@ -907,6 +1338,7 @@ async function handleRequest(request, response) {
   const token = resolveRequestToken(rawToken);
 
   enforceRateLimit(request, pathname);
+  validateQueryForRoute(pathname, requestUrl.searchParams);
 
   if (method === "POST" && pathname === `${API_PREFIX}/auth/register`) {
     const body = await readJsonBody(request);
@@ -1385,7 +1817,12 @@ async function handleRequest(request, response) {
 
   if (method === "POST" && pathname === `${API_PREFIX}/moderation/reports/resolve`) {
     const body = await readJsonBody(request);
+    validatePayloadForRoute(pathname, body);
     const result = await mockApi.resolveModerationReport(token, body);
+    logSecurityEvent(request, "moderation_report_resolve_success", "info", {
+      reportId: body?.reportId || "",
+      action: body?.action || "",
+    });
     sendJson(response, 200, result);
     return;
   }
@@ -1398,7 +1835,12 @@ async function handleRequest(request, response) {
 
   if (method === "POST" && pathname === `${API_PREFIX}/moderation/users/status`) {
     const body = await readJsonBody(request);
+    validatePayloadForRoute(pathname, body);
     const result = await mockApi.updateUserModerationStatus(token, body);
+    logSecurityEvent(request, "moderation_user_status_update_success", "info", {
+      targetUserId: body?.targetUserId || "",
+      action: body?.action || "",
+    });
     sendJson(response, 200, result);
     return;
   }
@@ -1417,6 +1859,24 @@ async function handleRequest(request, response) {
     return;
   }
 
+  if (method === "GET" && pathname === `${API_PREFIX}/security/audit`) {
+    const session = await mockApi.getCurrentUser(token);
+    if (session?.user?.role !== "admin") {
+      throw new Error("Admin access required.");
+    }
+    const limit = ensureBoundedInteger(requestUrl.searchParams.get("limit"), "limit", 1, 500, 200);
+    const events = securityAuditEntries.slice(-limit).reverse();
+    logSecurityEvent(request, "security_audit_viewed", "info", {
+      limit,
+    });
+    sendJson(response, 200, {
+      events,
+      count: events.length,
+      maxEntries: SECURITY_AUDIT_MAX_ENTRIES,
+    });
+    return;
+  }
+
   if (method === "GET" && pathname === `${API_PREFIX}/health`) {
     sendJson(response, 200, {
       status: "ok",
@@ -1430,26 +1890,44 @@ async function handleRequest(request, response) {
 }
 
 const server = createServer(async (request, response) => {
-  setCors(response);
-  setSecurityHeaders(response);
+  const requestUrl = new URL(request.url || "/", `http://${request.headers.host || "localhost"}`);
+  const pathname = requestUrl.pathname;
+  const method = request.method || "GET";
+  const corsState = setCors(request, response);
+  setSecurityHeaders(request, response);
 
-  if (request.method === "OPTIONS") {
+  if (!corsState.originAllowed) {
+    logSecurityEvent(request, "blocked_origin_http", "warn", {
+      origin: corsState.requestOrigin || "none",
+    });
+    sendError(response, 403, "Origin not allowed.");
+    return;
+  }
+
+  if (method === "OPTIONS") {
     response.writeHead(204);
     response.end();
     return;
   }
 
-  const requestUrl = new URL(request.url || "/", `http://${request.headers.host || "localhost"}`);
   const startedAt = Date.now();
 
   try {
+    enforceJsonRequestContentType(request, method, pathname);
     await handleRequest(request, response);
   } catch (error) {
     const message = error?.message ?? "Internal server error.";
-    sendError(response, resolveStatusFromMessage(message), message);
+    const status = resolveStatusFromMessage(message);
+    if (status >= 400) {
+      logSecurityEvent(request, "request_rejected", status >= 500 ? "error" : "warn", {
+        status,
+        reason: message,
+      });
+    }
+    sendError(response, status, message);
   } finally {
     const duration = Date.now() - startedAt;
-    console.log(`[${new Date().toISOString()}] ${request.method || "GET"} ${requestUrl.pathname} ${duration}ms`);
+    console.log(`[${new Date().toISOString()}] ${method} ${requestUrl.pathname} ${duration}ms`);
   }
 });
 
@@ -1488,10 +1966,23 @@ server.on("upgrade", (request, socket, head) => {
     return;
   }
 
+  const requestOrigin = normalizeOrigin(request.headers.origin);
+  if (!isOriginAllowed(requestOrigin, WS_ALLOWED_ORIGINS)) {
+    logSecurityEvent(request, "blocked_origin_websocket", "warn", {
+      origin: requestOrigin || "none",
+    });
+    socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
+    socket.destroy();
+    return;
+  }
+
   const token = requestUrl.searchParams.get("token") ?? getToken(request);
   resolveWsUserId(token)
     .then((userId) => {
       if (!userId) {
+        logSecurityEvent(request, "websocket_auth_failed", "warn", {
+          reason: "missing_or_invalid_session",
+        });
         socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
         socket.destroy();
         return;
@@ -1502,6 +1993,9 @@ server.on("upgrade", (request, socket, head) => {
       });
     })
     .catch(() => {
+      logSecurityEvent(request, "websocket_upgrade_error", "error", {
+        reason: "unexpected_upgrade_error",
+      });
       socket.write("HTTP/1.1 500 Internal Server Error\r\n\r\n");
       socket.destroy();
     });

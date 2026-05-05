@@ -383,15 +383,15 @@ function AppWorkspacePage() {
   }
 
   return (
-    <div className="mesh-bg min-h-screen overflow-x-hidden bg-slateDeep font-body text-slate-100">
+    <div className="mesh-bg min-h-screen h-dvh overflow-hidden bg-slateDeep font-body text-slate-100">
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
         <div className="orb orb-1" />
         <div className="orb orb-2" />
         <div className="orb orb-3" />
       </div>
 
-      <div className="relative mx-auto flex w-full max-w-[1460px] gap-4 px-3 pb-28 pt-4 sm:px-4 sm:pt-6 lg:gap-6 lg:px-8 lg:pb-24">
-        <aside className="glass-strong hidden w-[300px] shrink-0 animate-rise flex-col justify-between rounded-3xl p-5 lg:flex">
+      <div className="relative mx-auto flex h-full min-h-0 w-full max-w-[1460px] gap-4 px-3 pt-4 sm:px-4 sm:pt-6 lg:gap-6 lg:px-8">
+        <aside className="scrollbar-hidden glass-strong hidden min-h-0 w-[300px] shrink-0 animate-rise flex-col justify-between overflow-y-auto rounded-3xl p-5 lg:flex">
           <div>
             <div className="mb-7 flex items-center gap-3">
               <div className="grid h-12 w-12 place-items-center rounded-2xl bg-gradient-to-br from-coral to-ember text-lg font-bold shadow-glow">
@@ -472,8 +472,9 @@ function AppWorkspacePage() {
           </div>
         </aside>
 
-        <main className="min-w-0 w-full flex-1">
-          <header className="glass mb-6 animate-rise rounded-3xl p-4 md:p-5">
+        <main className="min-w-0 w-full min-h-0 flex-1">
+          <div className="scrollbar-hidden flex h-full min-h-0 flex-col overflow-y-auto overscroll-y-contain pb-24 lg:pb-4">
+            <header className="glass mb-6 animate-rise rounded-3xl p-4 md:p-5">
             <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
               <div>
                 <p className="text-xs uppercase tracking-[0.24em] text-slate-300">Spark Workspace</p>
@@ -515,10 +516,10 @@ function AppWorkspacePage() {
                 </button>
               </div>
             </div>
-          </header>
+            </header>
 
-          {hasIncomingCall && activeView !== "calls" && (
-            <section className="mb-6 rounded-2xl border border-coral/40 bg-coral/15 px-4 py-3">
+            {hasIncomingCall && activeView !== "calls" && (
+              <section className="mb-6 rounded-2xl border border-coral/40 bg-coral/15 px-4 py-3">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <p className="text-sm font-semibold text-white">
                   Incoming {activeCallSession?.type === "video" ? "video" : "voice"} call from{" "}
@@ -540,11 +541,11 @@ function AppWorkspacePage() {
                   </button>
                 </div>
               </div>
-            </section>
-          )}
+              </section>
+            )}
 
-          {activeView === "discover" && (
-            <DiscoverView
+            {activeView === "discover" && (
+              <DiscoverView
               feed={feed}
               loading={discoverLoading}
               error={discoverError}
@@ -564,11 +565,11 @@ function AppWorkspacePage() {
               onRefreshReels={refreshReels}
               interactionLoading={discoverInteractionLoading}
               isAuthenticated={isAuthenticated}
-            />
-          )}
+              />
+            )}
 
-          {activeView === "dashboard" && (
-            <DashboardView
+            {activeView === "dashboard" && (
+              <DashboardView
               isAuthenticated={isAuthenticated}
               isAdmin={isAdmin}
               user={user}
@@ -580,11 +581,11 @@ function AppWorkspacePage() {
               reportSummary={reportSummary}
               onOpenTab={setActiveView}
               onLoginRequest={() => openAuthView("login")}
-            />
-          )}
+              />
+            )}
 
-          {activeView === "swipe" && (
-            <SwipeView
+            {activeView === "swipe" && (
+              <SwipeView
               currentProfile={currentProfile}
               stats={stats}
               loading={swipeLoading}
@@ -603,11 +604,11 @@ function AppWorkspacePage() {
               filteredCount={filteredCount}
               totalCount={totalCount}
               isCurrentProfileMatched={isCurrentProfileMatched}
-            />
-          )}
+              />
+            )}
 
-          {activeView === "chat" && (
-            <ChatView
+            {activeView === "chat" && (
+              <ChatView
               threads={threads}
               activeThreadId={activeThreadId}
               setActiveThreadId={setActiveThreadId}
@@ -632,11 +633,11 @@ function AppWorkspacePage() {
               onStartVideoCall={(peerUserId) => startCall(peerUserId, "video")}
               onLoginRequest={() => openAuthView("signup")}
               isAuthenticated={isAuthenticated}
-            />
-          )}
+              />
+            )}
 
-          {activeView === "calls" && (
-            <CallsView
+            {activeView === "calls" && (
+              <CallsView
               activeSession={activeCallSession}
               contacts={callContacts}
               recentSessions={recentCalls}
@@ -655,11 +656,11 @@ function AppWorkspacePage() {
               onToggleCamera={toggleCallCamera}
               onLoginRequest={() => openAuthView("signup")}
               isAuthenticated={isAuthenticated}
-            />
-          )}
+              />
+            )}
 
-          {activeView === "notifications" && (
-            <NotificationsView
+            {activeView === "notifications" && (
+              <NotificationsView
               notifications={notifications}
               unreadCount={unreadCount}
               queuedEmailCount={queuedEmailCount}
@@ -678,11 +679,11 @@ function AppWorkspacePage() {
               onRequestBrowserPermission={requestBrowserPermission}
               isAuthenticated={isAuthenticated}
               onLoginRequest={() => openAuthView("signup")}
-            />
-          )}
+              />
+            )}
 
-          {activeView === "moderation" && (
-            <AdminModerationView
+            {activeView === "moderation" && (
+              <AdminModerationView
               isAuthenticated={isAuthenticated}
               isAdmin={isAdmin}
               loading={moderationLoading}
@@ -722,11 +723,11 @@ function AppWorkspacePage() {
               onUpdateUserStatus={updateModerationUserStatus}
               onOpenAccount={() => openAuthView("login")}
               onLoginRequest={openAdminLogin}
-            />
-          )}
+              />
+            )}
 
-          {activeView === "premium" && (
-            <PremiumView
+            {activeView === "premium" && (
+              <PremiumView
               user={user}
               subscription={subscription}
               currentPlanMeta={currentPlanMeta}
@@ -741,11 +742,11 @@ function AppWorkspacePage() {
               onCloseCheckout={closeCheckout}
               isAuthenticated={isAuthenticated}
               onLoginRequest={() => openAuthView("signup")}
-            />
-          )}
+              />
+            )}
 
-          {activeView === "auth" && (
-            <AuthView
+            {activeView === "auth" && (
+              <AuthView
               user={user}
               loading={authLoading}
               error={authError}
@@ -760,17 +761,17 @@ function AppWorkspacePage() {
               onUnblockUser={unblockUser}
               defaultMode={authDefaultMode}
               isAdminLogin={requestedMode === "admin"}
-            />
-          )}
+              />
+            )}
 
-          {authError && activeView !== "auth" && (
-            <p className="mt-6 rounded-2xl border border-red-400/40 bg-red-500/10 px-4 py-3 text-sm text-red-100">
-              {authError}
-            </p>
-          )}
+            {authError && activeView !== "auth" && (
+              <p className="mt-6 rounded-2xl border border-red-400/40 bg-red-500/10 px-4 py-3 text-sm text-red-100">
+                {authError}
+              </p>
+            )}
 
-          <footer className="glass mt-6 overflow-hidden rounded-3xl">
-            <div className="grid gap-6 p-5 md:p-6 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1fr)]">
+            <footer className="glass mt-6 overflow-hidden rounded-3xl">
+              <div className="grid gap-6 p-5 md:p-6 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1fr)]">
               <section>
                 <p className="font-heading text-xl text-white">Spark Workspace</p>
                 <p className="mt-2 max-w-md text-sm leading-relaxed text-slate-300">
@@ -817,13 +818,14 @@ function AppWorkspacePage() {
                   </Link>
                 </div>
               </section>
-            </div>
+              </div>
 
-            <div className="flex flex-col gap-2 border-t border-white/10 bg-black/15 px-5 py-4 text-xs text-slate-400 sm:flex-row sm:items-center sm:justify-between md:px-6">
-              <p>Copyright {new Date().getFullYear()} Spark Social</p>
-              <p>Workspace security, trust, and experience crafted for modern dating.</p>
-            </div>
-          </footer>
+              <div className="flex flex-col gap-2 border-t border-white/10 bg-black/15 px-5 py-4 text-xs text-slate-400 sm:flex-row sm:items-center sm:justify-between md:px-6">
+                <p>Copyright {new Date().getFullYear()} Spark Social</p>
+                <p>Workspace security, trust, and experience crafted for modern dating.</p>
+              </div>
+            </footer>
+          </div>
         </main>
       </div>
 

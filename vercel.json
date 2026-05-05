@@ -3,21 +3,18 @@
   "framework": "vite",
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
-  "routes": [
+  "rewrites": [
     {
-      "src": "/api/(.*)",
-      "dest": "https://vibematch-qqou.onrender.com/api/$1"
+      "source": "/api/:path*",
+      "destination": "https://vibematch-qqou.onrender.com/api/:path*"
     },
     {
-      "src": "/health",
-      "dest": "https://vibematch-qqou.onrender.com/health"
+      "source": "/health",
+      "destination": "https://vibematch-qqou.onrender.com/health"
     },
     {
-      "handle": "filesystem"
-    },
-    {
-      "src": "/(.*)",
-      "dest": "/index.html"
+      "source": "/(.*)",
+      "destination": "/index.html"
     }
   ]
 }

@@ -54,6 +54,14 @@ loadEnvFile(join(ROOT_DIR, ".env.local"));
 loadEnvFile(join(__dirname, ".env"));
 loadEnvFile(join(__dirname, ".env.local"));
 
+process.on("uncaughtException", (error) => {
+  console.error("[FATAL] uncaughtException:", error);
+});
+
+process.on("unhandledRejection", (reason) => {
+  console.error("[FATAL] unhandledRejection:", reason);
+});
+
 function ensureStorageFile() {
   if (!existsSync(DATA_DIR)) {
     mkdirSync(DATA_DIR, { recursive: true });
@@ -1340,6 +1348,16 @@ async function handleRequest(request, response) {
   enforceRateLimit(request, pathname);
   validateQueryForRoute(pathname, requestUrl.searchParams);
 
+  if (method === "GET" && pathname === "/") {
+    sendJson(response, 200, {
+      status: "ok",
+      service: "spark-backend",
+      health: `${API_PREFIX}/health`,
+      now: new Date().toISOString(),
+    });
+    return;
+  }
+
   if (method === "POST" && pathname === `${API_PREFIX}/auth/register`) {
     const body = await readJsonBody(request);
     validatePayloadForRoute(pathname, body);
@@ -2001,6 +2019,56 @@ server.on("upgrade", (request, socket, head) => {
     });
 });
 
-server.listen(PORT, () => {
-  console.log(`Spark backend running on http://localhost:${PORT}${API_PREFIX}`);
+server.on("error", (error) => {
+  console.error("[FATAL] HTTP server error:", error);
+});
+
+const shutdownSignals = ["SIGTERM", "SIGINT"];
+let isShuttingDown = false;
+
+function gracefulShutdown(signal) {
+  if (isShuttingDown) {
+    return;
+  }
+  isShuttingDown = true;
+  console.log(`[SHUTDOWN] Received ${signal}. Closing Spark backend...`);
+
+  try {
+    wsServer.clients.forEach((socket) => {
+      try {
+        socket.close(1001, "Server shutting down");
+      } catch {
+        // Ignore close errors during shutdown.
+      }
+    });
+  } catch {
+    // Ignore websocket cleanup errors.
+  }
+
+  server.close((error) => {
+    if (error) {
+      console.error("[FATAL] Error during server close:", error);
+      process.exit(1);
+      return;
+    }
+    console.log("[SHUTDOWN] Spark backend stopped gracefully.");
+    process.exit(0);
+  });
+
+  setTimeout(() => {
+    console.error("[FATAL] Forced shutdown after timeout.");
+    process.exit(1);
+  }, 10_000).unref();
+}
+
+shutdownSignals.forEach((signal) => {
+  process.on(signal, () => gracefulShutdown(signal));
+});
+
+server.listen(PORT, "0.0.0.0", () => {
+  const envName = process.env.NODE_ENV || "development";
+  console.log("[BOOT] Spark backend started");
+  console.log(`[BOOT] Node ${process.version} | env=${envName} | pid=${process.pid}`);
+  console.log(`[BOOT] Listening on 0.0.0.0:${PORT}`);
+  console.log(`[BOOT] Health endpoint: ${API_PREFIX}/health`);
 });

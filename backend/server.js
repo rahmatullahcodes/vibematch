@@ -80,6 +80,38 @@ app.use(cors(corsOptions));
 app.options(/.*/, cors(corsOptions));
 app.use(express.json({ limit: "1mb" }));
 
+const NON_API_COMPAT_PREFIXES = [
+  "/auth",
+  "/register",
+  "/subscription",
+  "/swipe",
+  "/discover",
+  "/chat",
+  "/calls",
+  "/notifications",
+  "/admin",
+  "/moderation",
+  "/analytics",
+];
+
+app.use((req, _res, next) => {
+  if (req.path.startsWith("/api/")) {
+    next();
+    return;
+  }
+
+  const shouldRewrite = NON_API_COMPAT_PREFIXES.some(
+    (prefix) => req.path === prefix || req.path.startsWith(`${prefix}/`),
+  );
+  if (!shouldRewrite) {
+    next();
+    return;
+  }
+
+  req.url = `/api${req.url}`;
+  next();
+});
+
 app.use((req, res, next) => {
   if (!req.path.startsWith("/api/")) {
     next();

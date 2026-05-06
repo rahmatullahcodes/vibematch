@@ -611,8 +611,9 @@ async function registerHandler(req, res) {
 
 app.post("/api/auth/register", registerHandler);
 app.post("/api/register", registerHandler);
+app.post("/register", registerHandler);
 
-app.post("/api/auth/login", async (req, res) => {
+async function loginHandler(req, res) {
   try {
     const email = normalizeText(req.body?.email).toLowerCase();
     const password = normalizeText(req.body?.password);
@@ -660,7 +661,11 @@ app.post("/api/auth/login", async (req, res) => {
   } catch (error) {
     res.status(500).json({ message: error?.message || "Login failed." });
   }
-});
+}
+
+app.post("/api/auth/login", loginHandler);
+app.post("/api/login", loginHandler);
+app.post("/login", loginHandler);
 
 app.post("/api/auth/refresh", (_req, res) => {
   res.status(501).json({ message: "Refresh token not enabled yet." });

@@ -100,7 +100,11 @@ export async function request(path, options = {}) {
     const message = endpointMissing
       ? "Backend endpoints are outdated. Please restart backend with `npm run backend`."
       : parsedBody?.message ?? `Request failed with status ${response.status}`;
-    throw new ApiError(message, response.status, parsedBody);
+    throw new ApiError(message, response.status, {
+      endpoint,
+      body: parsedBody,
+      status: response.status,
+    });
   }
 
   return parsedBody;

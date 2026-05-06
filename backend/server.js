@@ -548,6 +548,14 @@ app.get("/", (_req, res) => {
   res.send("Server Running");
 });
 
+app.get("/api", (_req, res) => {
+  res.json({
+    status: "ok",
+    message: "Spark backend API is running.",
+    health: "/api/health",
+  });
+});
+
 function healthHandler(_req, res) {
   res.json({
     status: "ok",

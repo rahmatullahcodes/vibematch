@@ -30,21 +30,16 @@ function ensureApiPath(url) {
 }
 
 function resolveApiBaseUrl() {
+  if (import.meta.env.PROD) {
+    // Production must always use same-origin /api proxy on Vercel.
+    return DEFAULT_PROD_API_BASE_URL;
+  }
+
   const rawEnvValue = import.meta.env.VITE_API_BASE_URL;
   const fromEnv = typeof rawEnvValue === "string" ? stripTrailingSlash(rawEnvValue.trim()) : "";
 
   if (!fromEnv) {
-    return import.meta.env.PROD ? DEFAULT_PROD_API_BASE_URL : DEFAULT_DEV_API_BASE_URL;
-  }
-
-  if (import.meta.env.PROD && isLocalhostBaseUrl(fromEnv)) {
-    return DEFAULT_PROD_API_BASE_URL;
-  }
-
-  // In production, route Render URLs through Vercel same-origin proxy to avoid
-  // browser-level cross-origin failures.
-  if (import.meta.env.PROD && isRenderHostUrl(fromEnv)) {
-    return DEFAULT_PROD_API_BASE_URL;
+    return DEFAULT_DEV_API_BASE_URL;
   }
 
   return ensureApiPath(fromEnv);
